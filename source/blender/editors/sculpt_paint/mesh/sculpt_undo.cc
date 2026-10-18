@@ -2142,6 +2142,11 @@ static void set_active_layer(bContext *C, const SculptAttrRef *attr_ref)
   }
 
   Object *ob = CTX_data_active_object(C);
+  /* GBrush: an undo/redo step crossing the sculpt-mode boundary can leave the
+   * active object null or non-mesh. Bail out like step_decode() does. */
+  if (ob == nullptr || ob->type != OB_MESH) {
+    return;
+  }
   Mesh *mesh = BKE_object_get_original_mesh(ob);
 
   SculptAttrRef existing;
