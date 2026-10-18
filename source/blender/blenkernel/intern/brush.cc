@@ -1926,7 +1926,7 @@ bool supports_sculpt_plane(const Brush &brush)
 }
 bool supports_color(const Brush &brush)
 {
-  return ELEM(brush.sculpt_brush_type, SCULPT_BRUSH_TYPE_PAINT);
+  return ELEM(brush.sculpt_brush_type, SCULPT_BRUSH_TYPE_PAINT, SCULPT_BRUSH_TYPE_DRAW_PAINT);
 }
 bool supports_secondary_cursor_color(const Brush &brush)
 {
@@ -1977,6 +1977,7 @@ bool supports_inverted_direction(const Brush &brush)
 {
   return ELEM(brush.sculpt_brush_type,
               SCULPT_BRUSH_TYPE_DRAW,
+              SCULPT_BRUSH_TYPE_DRAW_PAINT,
               SCULPT_BRUSH_TYPE_DRAW_SHARP,
               SCULPT_BRUSH_TYPE_CLAY,
               SCULPT_BRUSH_TYPE_CLAY_STRIPS,
@@ -2007,6 +2008,7 @@ bool supports_tilt(const Brush &brush)
 {
   return ELEM(brush.sculpt_brush_type,
               SCULPT_BRUSH_TYPE_DRAW,
+              SCULPT_BRUSH_TYPE_DRAW_PAINT,
               SCULPT_BRUSH_TYPE_DRAW_SHARP,
               SCULPT_BRUSH_TYPE_PLANE,
               SCULPT_BRUSH_TYPE_CLAY_STRIPS);

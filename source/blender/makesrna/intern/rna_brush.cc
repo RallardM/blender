@@ -187,6 +187,11 @@ const EnumPropertyItem rna_enum_brush_sculpt_brush_type_items[] = {
      "Multires Displacement Smear",
      ""},
     {SCULPT_BRUSH_TYPE_PAINT, "PAINT", 0, "Paint", ""},
+    {SCULPT_BRUSH_TYPE_DRAW_PAINT,
+     "DRAW_PAINT",
+     0,
+     "Draw Paint",
+     "Displace the surface and paint the active color attribute in the same stroke"},
     {SCULPT_BRUSH_TYPE_SMEAR, "SMEAR", 0, "Smear", ""},
     {SCULPT_BRUSH_TYPE_BLUR, "BLUR", 0, "Blur", ""},
     {0, nullptr, 0, nullptr, nullptr},
@@ -905,6 +910,7 @@ static const EnumPropertyItem *rna_Brush_direction_itemf(bContext *C,
     case PaintMode::Sculpt:
       switch (me->sculpt_brush_type) {
         case SCULPT_BRUSH_TYPE_DRAW:
+        case SCULPT_BRUSH_TYPE_DRAW_PAINT:
         case SCULPT_BRUSH_TYPE_DRAW_SHARP:
         case SCULPT_BRUSH_TYPE_CREASE:
         case SCULPT_BRUSH_TYPE_BLOB:

@@ -154,6 +154,7 @@ set(SRC
   mesh/brushes/crease.cc
   mesh/brushes/draw.cc
   mesh/brushes/draw_face_sets.cc
+  mesh/brushes/draw_paint.cc
   mesh/brushes/draw_sharp.cc
   mesh/brushes/draw_vector_displacement.cc
   mesh/brushes/elastic_deform.cc
