@@ -486,6 +486,9 @@ enum eBrushSculptType : char {
   SCULPT_BRUSH_TYPE_PLANE = 33,
   SCULPT_BRUSH_TYPE_BLUR = 34,
   SCULPT_BRUSH_TYPE_SCENE_PROJECT = 35,
+  /* GBrush: deliberately far from the upstream sequence so new upstream brush types never collide
+   * with it (the value is saved in .blend files). Must stay below 128, the field is a char. */
+  SCULPT_BRUSH_TYPE_DRAW_PAINT = 100,
 };
 
 /* Brush.curves_sculpt_brush_type. */

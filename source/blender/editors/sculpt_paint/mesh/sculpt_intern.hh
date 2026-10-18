@@ -909,6 +909,12 @@ inline bool brush_type_is_paint(const int tool)
   return ELEM(tool, SCULPT_BRUSH_TYPE_PAINT, SCULPT_BRUSH_TYPE_SMEAR, SCULPT_BRUSH_TYPE_BLUR);
 }
 
+/** Brush types that write to the active color attribute, including ones that also deform. */
+inline bool brush_type_writes_color(const int tool)
+{
+  return brush_type_is_paint(tool) || tool == SCULPT_BRUSH_TYPE_DRAW_PAINT;
+}
+
 inline bool brush_type_is_mask(const int tool)
 {
   return ELEM(tool, SCULPT_BRUSH_TYPE_MASK);

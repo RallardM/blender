@@ -106,6 +106,16 @@ void do_draw_brush(const Depsgraph &depsgraph,
                    const Sculpt &sd,
                    Object &object,
                    const IndexMask &node_mask);
+/**
+ * Normal-direction displacement that also blends the brush color into the active color
+ * attribute in the same pass. Behaves like #do_draw_brush when there is no color target.
+ */
+void do_draw_paint_brush(const Depsgraph &depsgraph,
+                         const Sculpt &sd,
+                         Object &object,
+                         const IndexMask &node_mask);
+/** True when #do_draw_paint_brush can store its color part (mesh with a color attribute). */
+bool draw_paint_has_color_target(const Object &object);
 /** A simple normal-direction displacement based on image texture RGB/XYZ values. */
 void do_draw_vector_displacement_brush(const Depsgraph &depsgraph,
                                        const Sculpt &sd,

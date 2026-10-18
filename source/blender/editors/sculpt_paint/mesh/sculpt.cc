@@ -949,6 +949,7 @@ static int sculpt_brush_needs_normal(const SculptSession &ss, const Brush &brush
                SCULPT_BRUSH_TYPE_BLOB,
                SCULPT_BRUSH_TYPE_CREASE,
                SCULPT_BRUSH_TYPE_DRAW,
+               SCULPT_BRUSH_TYPE_DRAW_PAINT,
                SCULPT_BRUSH_TYPE_DRAW_SHARP,
                SCULPT_BRUSH_TYPE_CLOTH,
                SCULPT_BRUSH_TYPE_LAYER,
@@ -1327,6 +1328,13 @@ static void restore_from_undo_step(const Depsgraph &depsgraph, const Sculpt &sd,
       }
       else {
         restore_face_set_from_undo_step(object);
+      }
+      break;
+    case SCULPT_BRUSH_TYPE_DRAW_PAINT:
+      restore_position_from_undo_step(depsgraph, object);
+      bke::pbvh::update_normals(depsgraph, object, *bke::object::pbvh_get(object));
+      if (brushes::draw_paint_has_color_target(object)) {
+        restore_color_from_undo_step(object);
       }
       break;
     default:
@@ -2286,6 +2294,7 @@ static float brush_strength(const Sculpt &sd, const StrokeCache &cache)
       overlap = (1.0f + overlap) / 2.0f;
       return 0.25f * alpha * flip * final_pressure * overlap;
     case SCULPT_BRUSH_TYPE_DRAW:
+    case SCULPT_BRUSH_TYPE_DRAW_PAINT:
     case SCULPT_BRUSH_TYPE_DRAW_SHARP:
     case SCULPT_BRUSH_TYPE_LAYER:
       return alpha * flip * pressure * overlap;
@@ -3393,6 +3402,14 @@ static void push_undo_nodes(const Depsgraph &depsgraph,
   else if (brush_type_is_paint(brush.sculpt_brush_type)) {
     undo::push_nodes(depsgraph, ob, node_mask, undo::Type::Color);
   }
+  else if (brush.sculpt_brush_type == SCULPT_BRUSH_TYPE_DRAW_PAINT &&
+           brushes::draw_paint_has_color_target(ob))
+  {
+    /* Position and color are stored in a single undo type, see #undo::Type::PositionColor. */
+    undo::push_nodes(depsgraph, ob, node_mask, undo::Type::PositionColor);
+    /* The combined type already stores positions. */
+    need_coords = false;
+  }
   else {
     need_coords = true;
   }
@@ -3407,6 +3424,8 @@ static const char *sculpt_brush_type_name(const Brush &brush)
   switch (eBrushSculptType(brush.sculpt_brush_type)) {
     case SCULPT_BRUSH_TYPE_DRAW:
       return "Draw Brush";
+    case SCULPT_BRUSH_TYPE_DRAW_PAINT:
+      return "Draw Paint Brush";
     case SCULPT_BRUSH_TYPE_SMOOTH:
       return "Smooth Brush";
     case SCULPT_BRUSH_TYPE_CREASE:
@@ -3556,6 +3575,9 @@ static void do_brush_action(const Depsgraph &depsgraph,
       }
       break;
     }
+    case SCULPT_BRUSH_TYPE_DRAW_PAINT:
+      brushes::do_draw_paint_brush(depsgraph, sd, ob, node_mask);
+      break;
     case SCULPT_BRUSH_TYPE_SMOOTH:
       if (brush.smooth_deform_type == BRUSH_SMOOTH_DEFORM_LAPLACIAN) {
         /* NOTE: The enhance brush needs to initialize its state on the first brush step. The
@@ -4990,7 +5012,13 @@ static void brush_stroke_init(bContext *C, const wmOperator *op)
   bke::brush::common_pressure_curves_init(*brush);
   brush_init_tex(sd, ss);
 
-  if (brush_type_is_paint(brush->sculpt_brush_type)) {
+  /* Draw Paint can only store colors on regular meshes. On multires or dynamic topology objects it
+   * deforms like Draw, so do not add a color attribute that would never be painted. */
+  const bool needs_draw_paint_colors = brush->sculpt_brush_type == SCULPT_BRUSH_TYPE_DRAW_PAINT &&
+                                       !ss.bm &&
+                                       !BKE_sculpt_multires_active(CTX_data_scene(C), &ob);
+
+  if (brush_type_is_paint(brush->sculpt_brush_type) || needs_draw_paint_colors) {
     BKE_sculpt_color_layer_create_if_needed(&ob);
   }
 
@@ -5531,7 +5559,7 @@ bool SculptPaintStroke::test_start(wmOperator *op, const float2 mouse)
 
     /* NOTE: This should be removed when paint mode is available. Paint mode can force based on the
      * canvas it is painting on. (ref. use_3d_texture_paint). */
-    if (brush_type_is_paint(brush.sculpt_brush_type)) {
+    if (brush_type_writes_color(brush.sculpt_brush_type)) {
       View3D *v3d = this->vc.v3d;
       if (v3d->shading.type == OB_SOLID) {
         v3d->shading.color_type = V3D_SHADING_VERTEX_COLOR;
@@ -5539,7 +5567,7 @@ bool SculptPaintStroke::test_start(wmOperator *op, const float2 mouse)
     }
 
     stroke_cache_init(this->vc, *sculpt_, *this->brush, *this->object, mouse);
-    if (brush_type_is_paint(brush.sculpt_brush_type)) {
+    if (brush_type_writes_color(brush.sculpt_brush_type)) {
       BKE_curvemapping_init(brush.curve_rand_hue);
       BKE_curvemapping_init(brush.curve_rand_saturation);
       BKE_curvemapping_init(brush.curve_rand_value);
