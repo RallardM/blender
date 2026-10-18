@@ -1071,6 +1071,16 @@ static void refine_subdiv(Depsgraph *depsgraph,
 static void restore_list(bContext *C, Depsgraph *depsgraph, StepData &step_data)
 {
   PRF_scope(ProfileCategory::Editor);
+  if (step_data.type == Type::PositionColor) {
+    /* The position and color parts are stored separately, so each one is restored by the code
+     * of its own type. Both swap their data, so this works for undo and redo. */
+    step_data.type = Type::Position;
+    restore_list(C, depsgraph, step_data);
+    step_data.type = Type::Color;
+    restore_list(C, depsgraph, step_data);
+    step_data.type = Type::PositionColor;
+    return;
+  }
   const Main *bmain = CTX_data_main(C);
   Scene *scene = CTX_data_scene(C);
   ViewLayer *view_layer = CTX_data_view_layer(C);
@@ -1385,6 +1395,10 @@ static void restore_list(bContext *C, Depsgraph *depsgraph, StepData &step_data)
       }
       break;
     }
+    case Type::PositionColor:
+      /* Split into #Type::Position and #Type::Color above. */
+      BLI_assert_unreachable();
+      break;
     case Type::DyntopoBegin:
     case Type::DyntopoEnd:
       /* Handled elsewhere. */
@@ -1421,7 +1435,10 @@ static const Node *get_node(const bke::pbvh::Node *node, const Type type)
   if (!step_data) {
     return nullptr;
   }
-  if (step_data->type != type) {
+  const bool type_matches = step_data->type == type ||
+                            (step_data->type == Type::PositionColor &&
+                             ELEM(type, Type::Position, Type::Color));
+  if (!type_matches) {
     return nullptr;
   }
   /* This access does not need to be locked because this function is not expected to be called
@@ -1651,6 +1668,17 @@ static void fill_node_data_mesh(const Depsgraph &depsgraph,
       store_color(mesh, node, unode);
       break;
     }
+    case Type::PositionColor: {
+      unode.position.reinitialize(verts_num);
+      /* Needed for original data lookup. */
+      unode.normal.reinitialize(verts_num);
+      if (ss.deform_modifiers_active) {
+        unode.orig_position.reinitialize(verts_num);
+      }
+      store_positions_mesh(depsgraph, object, unode);
+      store_color(mesh, node, unode);
+      break;
+    }
     case Type::DyntopoBegin:
     case Type::DyntopoEnd:
       /* Dyntopo should be handled elsewhere. */
@@ -1711,7 +1739,8 @@ static void fill_node_data_grids(const Object &object,
       store_mask_grids(subdiv_ccg, unode);
       break;
     }
-    case Type::Color: {
+    case Type::Color:
+    case Type::PositionColor: {
       BLI_assert_unreachable();
       break;
     }
@@ -1818,6 +1847,7 @@ BLI_NOINLINE static void bmesh_push(const Object &object,
       case Type::Geometry:
       case Type::FaceSet:
       case Type::Color:
+      case Type::PositionColor:
         break;
     }
   }
@@ -2093,6 +2123,32 @@ void push_end_ex(Object &ob, const bool use_nested_undo)
 
   if (step_data->type == Type::Position) {
     step_data->position_step_storage = std::make_unique<PositionUndoStorage>(*step_data);
+  }
+  else if (step_data->type == Type::PositionColor) {
+    /* The position storage takes ownership of the nodes it compresses, so give it separate
+     * nodes that only hold the position data. The color data stays in the regular nodes. */
+    Vector<std::unique_ptr<Node>> position_nodes;
+    position_nodes.reserve(step_data->nodes.size());
+    for (std::unique_ptr<Node> &unode : step_data->nodes) {
+      std::unique_ptr<Node> position_node = std::make_unique<Node>();
+      position_node->vert_indices = unode->vert_indices;
+      position_node->unique_verts_num = unode->unique_verts_num;
+      position_node->position = std::move(unode->position);
+      position_node->orig_position = std::move(unode->orig_position);
+      unode->position = {};
+      unode->orig_position = {};
+      position_nodes.append(std::move(position_node));
+    }
+    /* The compression task adds the size of the position data later. */
+    size_t color_size = 0;
+    for (const std::unique_ptr<Node> &unode : step_data->nodes) {
+      color_size += node_size_in_bytes(*unode);
+    }
+    step_data->undo_size = color_size;
+    Vector<std::unique_ptr<Node>> color_nodes = std::move(step_data->nodes);
+    step_data->nodes = std::move(position_nodes);
+    step_data->position_step_storage = std::make_unique<PositionUndoStorage>(*step_data);
+    step_data->nodes = std::move(color_nodes);
   }
   else {
     step_data->undo_size = threading::parallel_reduce(
