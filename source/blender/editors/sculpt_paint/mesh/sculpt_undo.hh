@@ -38,6 +38,11 @@ enum class Type : int8_t {
   Geometry,
   FaceSet,
   Color,
+  /**
+   * Position and color data in one step, used by brushes that sculpt and paint in the same pass.
+   * Only supported for regular meshes, not for multires or dynamic topology.
+   */
+  PositionColor,
 };
 
 struct StepData;
