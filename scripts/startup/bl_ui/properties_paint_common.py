@@ -824,6 +824,10 @@ def brush_settings(layout, context, brush, popover=False):
         capabilities = brush.sculpt_capabilities
         sculpt_brush_type = brush.sculpt_brush_type
 
+        # Smooth: which data it smooths.
+        if sculpt_brush_type == 'SMOOTH':
+            layout.prop(brush, "smooth_affects", text="Affects")
+
         # normal_radius_factor
         if capabilities.has_normal_radius:
             layout.prop(brush, "normal_radius_factor", slider=True)

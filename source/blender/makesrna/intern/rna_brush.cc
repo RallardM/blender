@@ -2567,6 +2567,21 @@ static void rna_def_brush(BlenderRNA *brna)
       {0, nullptr, 0, nullptr, nullptr},
   };
 
+  static const EnumPropertyItem brush_smooth_affects_items[] = {
+      {BRUSH_SMOOTH_AFFECTS_MESH, "MESH", 0, "Mesh", "Smooth the shape of the mesh"},
+      {BRUSH_SMOOTH_AFFECTS_COLOR,
+       "COLOR",
+       0,
+       "Color",
+       "Smooth the active color attribute and leave the shape alone"},
+      {BRUSH_SMOOTH_AFFECTS_BOTH,
+       "BOTH",
+       0,
+       "Mesh and Color",
+       "Smooth the shape of the mesh and the active color attribute"},
+      {0, nullptr, 0, nullptr, nullptr},
+  };
+
   static const EnumPropertyItem brush_smooth_deform_type_items[] = {
       {BRUSH_SMOOTH_DEFORM_LAPLACIAN,
        "LAPLACIAN",
@@ -2816,6 +2831,14 @@ static void rna_def_brush(BlenderRNA *brna)
   RNA_def_property_enum_items(prop, brush_boundary_falloff_type_items);
   RNA_def_property_ui_text(
       prop, "Boundary Falloff", "How the brush falloff is applied across the boundary");
+  RNA_def_property_update(prop, 0, "rna_Brush_update");
+
+  prop = RNA_def_property(srna, "smooth_affects", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_items(prop, brush_smooth_affects_items);
+  RNA_def_property_ui_text(prop,
+                           "Affects",
+                           "Which data the Smooth brush smooths. Color needs a mesh with an active\n"
+                           "color attribute and does not work with multires or dynamic topology");
   RNA_def_property_update(prop, 0, "rna_Brush_update");
 
   prop = RNA_def_property(srna, "smooth_deform_type", PROP_ENUM, PROP_NONE);

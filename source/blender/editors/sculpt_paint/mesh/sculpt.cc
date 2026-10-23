@@ -3306,6 +3306,17 @@ static brushes::CursorSampleResult calc_brush_node_mask(const Depsgraph &depsgra
           std::nullopt};
 }
 
+/**
+ * True when a Smooth brush stroke also smooths colors: the brush asks for it and the object has
+ * a color attribute that can be written in this stroke (regular mesh, not multires or dyntopo).
+ */
+static bool smooth_affects_color_target(const Brush &brush, const Object &ob)
+{
+  return brush.sculpt_brush_type == SCULPT_BRUSH_TYPE_SMOOTH &&
+         brush.smooth_affects != BRUSH_SMOOTH_AFFECTS_MESH &&
+         brushes::draw_paint_has_color_target(ob);
+}
+
 static void push_undo_nodes(const Depsgraph &depsgraph,
                             Object &ob,
                             const Brush &brush,
@@ -3336,6 +3347,15 @@ static void push_undo_nodes(const Depsgraph &depsgraph,
     /* Position and color are stored in a single undo type, see #undo::Type::PositionColor. */
     undo::push_nodes(depsgraph, ob, node_mask, undo::Type::PositionColor);
     /* The combined type already stores positions. */
+    need_coords = false;
+  }
+  else if (smooth_affects_color_target(brush, ob)) {
+    if (brush.smooth_affects == BRUSH_SMOOTH_AFFECTS_COLOR) {
+      undo::push_nodes(depsgraph, ob, node_mask, undo::Type::Color);
+    }
+    else {
+      undo::push_nodes(depsgraph, ob, node_mask, undo::Type::PositionColor);
+    }
     need_coords = false;
   }
   else {
@@ -3515,25 +3535,34 @@ static void do_brush_action(const Depsgraph &depsgraph,
     case SCULPT_BRUSH_TYPE_DRAW_PAINT:
       brushes::do_draw_paint_brush(depsgraph, sd, ob, node_mask);
       break;
-    case SCULPT_BRUSH_TYPE_SMOOTH:
-      if (brush.smooth_deform_type == BRUSH_SMOOTH_DEFORM_LAPLACIAN) {
-        /* NOTE: The enhance brush needs to initialize its state on the first brush step. The
-         * stroke strength can become 0 during the stroke, but it can not change sign (the sign is
-         * determined in the beginning of the stroke). So here it is important to not switch to
-         * enhance brush in the middle of the stroke. */
-        if (ss.cache->initial_direction_flipped) {
-          /* Invert mode, intensify details. */
-          brushes::do_enhance_details_brush(depsgraph, sd, ob, node_mask);
+    case SCULPT_BRUSH_TYPE_SMOOTH: {
+      /* Color only without a usable color target does nothing, so that choosing Color never
+       * changes the shape by surprise. */
+      if (brush.smooth_affects != BRUSH_SMOOTH_AFFECTS_COLOR) {
+        if (brush.smooth_deform_type == BRUSH_SMOOTH_DEFORM_LAPLACIAN) {
+          /* NOTE: The enhance brush needs to initialize its state on the first brush step. The
+           * stroke strength can become 0 during the stroke, but it can not change sign (the sign
+           * is determined in the beginning of the stroke). So here it is important to not switch
+           * to enhance brush in the middle of the stroke. */
+          if (ss.cache->initial_direction_flipped) {
+            /* Invert mode, intensify details. */
+            brushes::do_enhance_details_brush(depsgraph, sd, ob, node_mask);
+          }
+          else {
+            brushes::do_smooth_brush(
+                depsgraph, sd, ob, node_mask, std::clamp(ss.cache->bstrength, 0.0f, 1.0f));
+          }
         }
-        else {
-          brushes::do_smooth_brush(
-              depsgraph, sd, ob, node_mask, std::clamp(ss.cache->bstrength, 0.0f, 1.0f));
+        else if (brush.smooth_deform_type == BRUSH_SMOOTH_DEFORM_SURFACE) {
+          brushes::do_surface_smooth_brush(depsgraph, sd, ob, node_mask);
         }
       }
-      else if (brush.smooth_deform_type == BRUSH_SMOOTH_DEFORM_SURFACE) {
-        brushes::do_surface_smooth_brush(depsgraph, sd, ob, node_mask);
+      /* Inverted strokes (enhance details) have no color equivalent, so they leave color alone. */
+      if (smooth_affects_color_target(brush, ob) && ss.cache->bstrength > 0.0f) {
+        color::do_blur_brush(depsgraph, sd, ob, node_mask);
       }
       break;
+    }
     case SCULPT_BRUSH_TYPE_CREASE:
       brushes::do_crease_brush(depsgraph, sd, ob, node_mask);
       break;

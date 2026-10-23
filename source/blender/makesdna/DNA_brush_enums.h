@@ -195,6 +195,13 @@ enum eBrushSmoothDeformType : int {
   BRUSH_SMOOTH_DEFORM_SURFACE = 1,
 };
 
+/** Which data the Smooth brush smooths. Stored in a byte, keep the values below 128. */
+enum eBrushSmoothAffects : int8_t {
+  BRUSH_SMOOTH_AFFECTS_MESH = 0,
+  BRUSH_SMOOTH_AFFECTS_COLOR = 1,
+  BRUSH_SMOOTH_AFFECTS_BOTH = 2,
+};
+
 enum eBrushClothForceFalloffType : int {
   BRUSH_CLOTH_FORCE_FALLOFF_RADIAL = 0,
   BRUSH_CLOTH_FORCE_FALLOFF_PLANE = 1,

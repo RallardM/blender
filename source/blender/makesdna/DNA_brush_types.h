@@ -414,7 +414,10 @@ struct Brush {
 
   /* Scene Project brush */
   eBrushProjectRayDirection project_ray_direction_type = BRUSH_PROJECT_RAY_DIRECTION_VIEW_NORMAL;
-  char _pad2[3] = {};
+  /* Smooth brush: which data it smooths. Takes one byte of the former padding, so the struct
+   * layout is unchanged and old files read the default (mesh only). */
+  eBrushSmoothAffects smooth_affects = BRUSH_SMOOTH_AFFECTS_MESH;
+  char _pad2[2] = {};
   float minimum_distance = 0.0f;
 
   /* overlay */
