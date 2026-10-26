@@ -6163,6 +6163,12 @@ static wmOperatorStatus sculpt_brush_stroke_invoke(bContext *C,
 
     mask_overlay_check(*C, *op);
   }
+  if (brush_type_writes_color(brush.sculpt_brush_type)) {
+    /* GBrush: multires objects keep their paint in a grid color layer. */
+    if (MultiresModifierData *mmd = BKE_sculpt_multires_active(&scene, &ob)) {
+      BKE_sculpt_grid_color_layer_ensure(&ob, mmd);
+    }
+  }
   if (brush.sculpt_brush_type == SCULPT_BRUSH_TYPE_DRAW_FACE_SETS) {
     face_set_overlay_check(*C, *op);
   }

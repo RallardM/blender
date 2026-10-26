@@ -67,12 +67,17 @@ void multires_customdata_delete(Mesh *mesh)
     if (CustomData_has_layer(&em->bm->ldata, CD_GRID_PAINT_MASK)) {
       BM_data_layer_free(em->bm, &em->bm->ldata, CD_GRID_PAINT_MASK);
     }
+
+    if (CustomData_has_layer(&em->bm->ldata, CD_GRID_PAINT_COLOR)) {
+      BM_data_layer_free(em->bm, &em->bm->ldata, CD_GRID_PAINT_COLOR);
+    }
   }
   else {
     CustomData_external_remove(&mesh->corner_data, &mesh->id, CD_MDISPS, mesh->corners_num);
     CustomData_free_layer_active(&mesh->corner_data, CD_MDISPS);
 
     CustomData_free_layer_active(&mesh->corner_data, CD_GRID_PAINT_MASK);
+    CustomData_free_layer_active(&mesh->corner_data, CD_GRID_PAINT_COLOR);
   }
 }
 

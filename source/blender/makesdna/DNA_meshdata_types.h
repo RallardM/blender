@@ -241,6 +241,23 @@ struct GridPaintMask {
   char _pad[4];
 };
 
+/**
+ * Multi-Resolution grid loop colors, the color twin of #GridPaintMask.
+ * GBrush: not part of upstream Blender.
+ */
+struct GridPaintColor {
+  /**
+   * The data array contains `grid_size * grid_size` elements of 4 floats (RGBA).
+   * Where `grid_size = (1 << (level - 1)) + 1`.
+   */
+  float *data;
+
+  /** The multires level this grid is stored at. */
+  unsigned int level;
+
+  char _pad[4];
+};
+
 /** \} */
 
 /* -------------------------------------------------------------------- */

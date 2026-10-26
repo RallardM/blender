@@ -112,7 +112,10 @@ enum eCustomDataType : int {
 
   CD_PROP_QUATERNION = 52,
 
-  CD_NUMTYPES = 53,
+  /** Multires grid colors, see #GridPaintColor. GBrush: not part of upstream Blender. */
+  CD_GRID_PAINT_COLOR = 53,
+
+  CD_NUMTYPES = 54,
 };
 
 /* Bits for #eCustomDataMask */
@@ -138,6 +141,7 @@ enum eCustomDataType : int {
 #define CD_MASK_BM_ELEM_PYPTR (1LL << CD_BM_ELEM_PYPTR)
 
 #define CD_MASK_GRID_PAINT_MASK (1LL << CD_GRID_PAINT_MASK)
+#define CD_MASK_GRID_PAINT_COLOR (1LL << CD_GRID_PAINT_COLOR)
 #define CD_MASK_MVERT_SKIN (1LL << CD_MVERT_SKIN)
 #define CD_MASK_MLOOPTANGENT (1LL << CD_MLOOPTANGENT)
 #define CD_MASK_TESSLOOPNORMAL (1LL << CD_TESSLOOPNORMAL)
@@ -244,11 +248,13 @@ struct CustomData {
    * Runtime only map from types to indices of first layer of that type,
    * Correct size of #CD_NUMTYPES is ensured by CustomData_update_typemap.
    */
-  int typemap[53] = {};
+  int typemap[54] = {};
   /** Number of layers, size of layers array. */
   int totlayer = 0, maxlayer = 0;
   /** In editmode, total size of all data layers. */
   int totsize = 0;
+  /* GBrush: keeps the pointers below 8-byte aligned now that `typemap` has 54 entries. */
+  char _pad[4] = {};
   /** (BMesh Only): Memory pool for allocation of blocks. */
   struct BLI_mempool *pool = nullptr;
   /** External file storing custom-data layers. */

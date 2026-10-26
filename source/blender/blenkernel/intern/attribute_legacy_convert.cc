@@ -72,6 +72,7 @@ std::optional<AttrType> custom_data_type_to_attr_type(const eCustomDataType data
     case CD_MDISPS:
     case CD_ORIGSPACE_MLOOP:
     case CD_GRID_PAINT_MASK:
+    case CD_GRID_PAINT_COLOR:
       return std::nullopt;
 
     /* Use for editing/selecting original data from evaluated mesh (vertices, edges, faces). */

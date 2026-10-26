@@ -163,6 +163,12 @@ static bool rna_Mesh_has_custom_normals_get(PointerRNA *ptr)
   return BKE_mesh_has_custom_loop_normals(mesh);
 }
 
+static bool rna_Mesh_has_multires_color_get(PointerRNA *ptr)
+{
+  const Mesh *mesh = static_cast<const Mesh *>(ptr->data);
+  return CustomData_has_layer(&mesh->corner_data, CD_GRID_PAINT_COLOR);
+}
+
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -3284,6 +3290,15 @@ static void rna_def_mesh(BlenderRNA *brna)
   RNA_def_property_ui_text(
       prop, "Has Custom Normals", "True if there is custom normal data for this mesh");
   RNA_def_property_boolean_funcs(prop, "rna_Mesh_has_custom_normals_get", nullptr);
+  RNA_define_verify_sdna(true);
+
+  RNA_define_verify_sdna(false);
+  prop = RNA_def_property(srna, "has_multires_color", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, nullptr, "", 0);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop, "Has Multires Color", "True if the mesh has painted multires grid colors (GBrush)");
+  RNA_def_property_boolean_funcs(prop, "rna_Mesh_has_multires_color_get", nullptr);
   RNA_define_verify_sdna(true);
 
   prop = RNA_def_property(srna, "texco_mesh", PROP_POINTER, PROP_NONE);

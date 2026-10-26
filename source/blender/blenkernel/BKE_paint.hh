@@ -606,6 +606,13 @@ void BKE_sculpt_mask_layers_ensure(Depsgraph *depsgraph,
                                    Main *bmain,
                                    Object *ob,
                                    MultiresModifierData *mmd);
+
+/**
+ * Create the multires grid color layer (#CD_GRID_PAINT_COLOR) if a multires modifier is active
+ * and the mesh has none yet. New grids are opaque white at the current sculpt level.
+ * GBrush: not part of upstream Blender.
+ */
+void BKE_sculpt_grid_color_layer_ensure(Object *ob, MultiresModifierData *mmd);
 void BKE_sculpt_toolsettings_data_ensure(Main *bmain, Scene *scene);
 
 void BKE_sculpt_sync_face_visibility_to_grids(const Mesh &mesh, SubdivCCG &subdiv_ccg);

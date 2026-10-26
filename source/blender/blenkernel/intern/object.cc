@@ -1757,6 +1757,7 @@ static void object_update_from_subsurf_ccg(Object *object)
   Mesh *mesh_cow = id_cast<Mesh *>(object->runtime->data_orig);
   copy_ccg_data(mesh_cow, mesh_orig, CD_MDISPS);
   copy_ccg_data(mesh_cow, mesh_orig, CD_GRID_PAINT_MASK);
+  copy_ccg_data(mesh_cow, mesh_orig, CD_GRID_PAINT_COLOR);
   /* Everything is now up-to-date. */
   subdiv_ccg->dirty.coords = false;
   subdiv_ccg->dirty.hidden = false;
