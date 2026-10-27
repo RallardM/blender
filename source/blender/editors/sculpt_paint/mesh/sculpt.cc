@@ -5206,6 +5206,16 @@ static void brush_stroke_init(bContext *C, const wmOperator *op)
     BKE_sculpt_color_layer_create_if_needed(&ob);
   }
 
+  /* GBrush: multires objects keep their paint in a grid color layer. Paint brushes are refused on
+   * multires by #color_supported_check, so only brushes like Draw Paint get here. */
+  if (brush_type_writes_color(brush->sculpt_brush_type) &&
+      !brush_type_is_paint(brush->sculpt_brush_type))
+  {
+    if (MultiresModifierData *mmd = BKE_sculpt_multires_active(CTX_data_scene(C), &ob)) {
+      BKE_sculpt_grid_color_layer_ensure(&ob, mmd);
+    }
+  }
+
   /* CTX_data_ensure_evaluated_depsgraph should be used at the end to include the updates of
    * earlier steps modifying the data. */
   Depsgraph *depsgraph = CTX_data_ensure_evaluated_depsgraph(C);
@@ -6162,12 +6172,6 @@ static wmOperatorStatus sculpt_brush_stroke_invoke(bContext *C,
     BKE_sculpt_mask_layers_ensure(CTX_data_depsgraph_pointer(C), CTX_data_main(C), &ob, mmd);
 
     mask_overlay_check(*C, *op);
-  }
-  if (brush_type_writes_color(brush.sculpt_brush_type)) {
-    /* GBrush: multires objects keep their paint in a grid color layer. */
-    if (MultiresModifierData *mmd = BKE_sculpt_multires_active(&scene, &ob)) {
-      BKE_sculpt_grid_color_layer_ensure(&ob, mmd);
-    }
   }
   if (brush.sculpt_brush_type == SCULPT_BRUSH_TYPE_DRAW_FACE_SETS) {
     face_set_overlay_check(*C, *op);
