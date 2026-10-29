@@ -247,10 +247,11 @@ struct GridPaintMask {
  */
 struct GridPaintColor {
   /**
-   * The data array contains `grid_size * grid_size` elements of 4 floats (RGBA).
-   * Where `grid_size = (1 << (level - 1)) + 1`.
+   * The data array contains `grid_size * grid_size` elements of 4 bytes (RGBA, the same
+   * encoding as byte color attributes). Where `grid_size = (1 << (level - 1)) + 1`.
+   * A null array means the grid was never painted, it reads as opaque white.
    */
-  float *data;
+  unsigned char *data;
 
   /** The multires level this grid is stored at. */
   unsigned int level;

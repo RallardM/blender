@@ -4890,7 +4890,7 @@ static void write_grid_paint_color(BlendWriter *writer,
       const GridPaintColor *gpc = &grid_paint_color[i];
       if (gpc->data) {
         const uint32_t gridsize = uint32_t(CCG_grid_size(gpc->level));
-        writer->write_float_array(gridsize * gridsize * 4, gpc->data);
+        writer->write_uint8_array(gridsize * gridsize * 4, gpc->data);
       }
     }
   }
@@ -5026,9 +5026,14 @@ static void blend_read_grid_paint_color(BlendDataReader *reader,
   if (grid_paint_color) {
     for (int i = 0; i < count; i++) {
       GridPaintColor *gpc = &grid_paint_color[i];
-      if (gpc->data) {
+      if (gpc->data && gpc->level >= 1) {
         const int gridsize = CCG_grid_size(gpc->level);
         (void)BLO_read_array(reader, &gpc->data, int64_t(gridsize) * gridsize * 4);
+      }
+      else {
+        /* Corrupt entry, treat the grid as never painted. */
+        gpc->data = nullptr;
+        gpc->level = 0;
       }
     }
   }

@@ -2619,20 +2619,9 @@ void BKE_sculpt_grid_color_layer_ensure(Object *ob, MultiresModifierData *mmd)
     return;
   }
 
-  const int level = max_ii(1, mmd->sculptlvl);
-  const int gridsize = CCG_grid_size(level);
-  const int gridarea = gridsize * gridsize;
-
-  GridPaintColor *colors = static_cast<GridPaintColor *>(CustomData_add_layer(
-      &mesh->corner_data, CD_GRID_PAINT_COLOR, CD_SET_DEFAULT, mesh->corners_num));
-
-  for (int i = 0; i < mesh->corners_num; i++) {
-    GridPaintColor *gpc = &colors[i];
-    gpc->level = level;
-    gpc->data = MEM_new_array_zeroed<float>(size_t(gridarea) * 4, "GridPaintColor.data");
-    /* Opaque white, the default of a new color attribute. */
-    std::fill_n(gpc->data, size_t(gridarea) * 4, 1.0f);
-  }
+  /* Grids start empty (null data, level 0). They are allocated when paint first touches the
+   * corner, an empty grid reads as opaque white. */
+  CustomData_add_layer(&mesh->corner_data, CD_GRID_PAINT_COLOR, CD_SET_DEFAULT, mesh->corners_num);
   DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
 }
 
