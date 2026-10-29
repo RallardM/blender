@@ -157,7 +157,7 @@ enum eCustomDataType : int {
 #define CD_MASK_PROP_FLOAT4X4 (1ULL << CD_PROP_FLOAT4X4)
 
 /** Multi-resolution loop data. */
-#define CD_MASK_MULTIRES_GRIDS (CD_MASK_MDISPS | CD_GRID_PAINT_MASK)
+#define CD_MASK_MULTIRES_GRIDS (CD_MASK_MDISPS | CD_GRID_PAINT_MASK | CD_MASK_GRID_PAINT_COLOR)
 
 /** All data layers. */
 #define CD_MASK_ALL (~0LL)

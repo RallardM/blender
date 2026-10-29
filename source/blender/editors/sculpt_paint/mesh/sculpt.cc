@@ -1336,6 +1336,17 @@ static void restore_from_undo_step(const Depsgraph &depsgraph, const Sculpt &sd,
         restore_color_from_undo_step(object);
       }
       break;
+    case SCULPT_BRUSH_TYPE_SMOOTH:
+      if (brush->smooth_affects != BRUSH_SMOOTH_AFFECTS_COLOR) {
+        restore_position_from_undo_step(depsgraph, object);
+        bke::pbvh::update_normals(depsgraph, object, *bke::object::pbvh_get(object));
+      }
+      if (brush->smooth_affects != BRUSH_SMOOTH_AFFECTS_MESH &&
+          brushes::draw_paint_has_color_target(object))
+      {
+        restore_color_from_undo_step(object);
+      }
+      break;
     default:
       restore_position_from_undo_step(depsgraph, object);
       bke::pbvh::update_normals(depsgraph, object, *bke::object::pbvh_get(object));
