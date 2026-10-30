@@ -217,6 +217,13 @@ struct SubdivCCG : NonCopyable {
 void BKE_subdiv_ccg_colors_init_from_paint(SubdivCCG &subdiv_ccg, const Mesh &mesh);
 
 /**
+ * GBrush: store #SubdivCCG::colors back into the grid color layer of \a mesh. Grids that are
+ * white and have no stored data stay empty, grids stored at another level are only replaced when
+ * their resampled colors differ. Does nothing without the layer.
+ */
+void BKE_subdiv_ccg_colors_write_to_paint(const SubdivCCG &subdiv_ccg, Mesh &mesh);
+
+/**
  * Create CCG representation of subdivision surface.
  *
  * \note CCG stores dense vertices in a grid-like storage. There is no edges or

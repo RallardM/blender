@@ -1714,13 +1714,20 @@ static void object_update_from_subsurf_ccg(Object *object)
     return;
   }
   /* Check whether there is anything to be reshaped. */
-  if (!subdiv_ccg->dirty.coords && !subdiv_ccg->dirty.hidden) {
+  const bool geometry_dirty = subdiv_ccg->dirty.coords || subdiv_ccg->dirty.hidden;
+  if (!geometry_dirty && !subdiv_ccg->dirty.colors) {
     return;
   }
   const int tot_level = mesh_eval->runtime->subdiv_ccg_tot_level;
   Object *object_orig = DEG_get_original(object);
   Mesh *mesh_orig = id_cast<Mesh *>(object_orig->data);
-  multiresModifier_reshapeFromCCG(tot_level, mesh_orig, subdiv_ccg);
+  if (geometry_dirty) {
+    multiresModifier_reshapeFromCCG(tot_level, mesh_orig, subdiv_ccg);
+  }
+  if (subdiv_ccg->dirty.colors) {
+    /* GBrush: grid colors only need their own write back, not a displacement reshape. */
+    BKE_subdiv_ccg_colors_write_to_paint(*subdiv_ccg, *mesh_orig);
+  }
   /* NOTE: we need to reshape into an original mesh from main database,
    * allowing:
    *
@@ -1755,11 +1762,17 @@ static void object_update_from_subsurf_ccg(Object *object)
    * mesh_cow is a copy-on-written version of `object_orig->data`.
    */
   Mesh *mesh_cow = id_cast<Mesh *>(object->runtime->data_orig);
-  copy_ccg_data(mesh_cow, mesh_orig, CD_MDISPS);
-  copy_ccg_data(mesh_cow, mesh_orig, CD_GRID_PAINT_MASK);
+  if (geometry_dirty) {
+    copy_ccg_data(mesh_cow, mesh_orig, CD_MDISPS);
+    copy_ccg_data(mesh_cow, mesh_orig, CD_GRID_PAINT_MASK);
+  }
+  if (subdiv_ccg->dirty.colors) {
+    copy_ccg_data(mesh_cow, mesh_orig, CD_GRID_PAINT_COLOR);
+  }
   /* Everything is now up-to-date. */
   subdiv_ccg->dirty.coords = false;
   subdiv_ccg->dirty.hidden = false;
+  subdiv_ccg->dirty.colors = false;
 }
 
 void BKE_object_eval_assign_data(Object *object_eval, ID *data_eval, bool is_owned)

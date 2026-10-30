@@ -295,7 +295,8 @@ void multires_flush_sculpt_updates(Object *object)
     return;
   }
 
-  if (!subdiv_ccg->dirty.coords && !subdiv_ccg->dirty.hidden) {
+  const bool geometry_dirty = subdiv_ccg->dirty.coords || subdiv_ccg->dirty.hidden;
+  if (!geometry_dirty && !subdiv_ccg->dirty.colors) {
     return;
   }
 
@@ -323,11 +324,17 @@ void multires_flush_sculpt_updates(Object *object)
     return;
   }
 
-  multiresModifier_reshapeFromCCG(
-      sculpt_session->multires_modifier->totlvl, mesh, sculpt_session->subdiv_ccg);
+  if (geometry_dirty) {
+    multiresModifier_reshapeFromCCG(
+        sculpt_session->multires_modifier->totlvl, mesh, sculpt_session->subdiv_ccg);
+  }
+  if (subdiv_ccg->dirty.colors) {
+    BKE_subdiv_ccg_colors_write_to_paint(*subdiv_ccg, *mesh);
+  }
 
   subdiv_ccg->dirty.coords = false;
   subdiv_ccg->dirty.hidden = false;
+  subdiv_ccg->dirty.colors = false;
 }
 
 void multires_force_sculpt_rebuild(Object *object)

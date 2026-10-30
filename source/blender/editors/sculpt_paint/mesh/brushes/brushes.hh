@@ -112,6 +112,8 @@ void do_draw_paint_brush(const Depsgraph &depsgraph,
                          const IndexMask &node_mask);
 /** True when #do_draw_paint_brush can store its color part (mesh with a color attribute). */
 bool draw_paint_has_color_target(const Object &object);
+/** True when #do_draw_paint_brush can store its color part in multires grid colors. */
+bool draw_paint_has_grid_color_target(const Object &object);
 /** A simple normal-direction displacement based on image texture RGB/XYZ values. */
 void do_draw_vector_displacement_brush(const Depsgraph &depsgraph,
                                        const Sculpt &sd,
