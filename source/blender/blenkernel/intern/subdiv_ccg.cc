@@ -6,6 +6,8 @@
  * \ingroup bke
  */
 
+#include <algorithm>
+
 #include "BKE_subdiv_ccg.hh"
 
 #include "MEM_guardedalloc.h"
@@ -83,6 +85,10 @@ static void subdiv_ccg_alloc_elements(SubdivCCG &subdiv_ccg,
   }
   if (settings.need_mask) {
     subdiv_ccg.masks.reinitialize(num_grids * grid_area);
+  }
+  if (settings.need_color) {
+    subdiv_ccg.colors.reinitialize(num_grids * grid_area);
+    subdiv_ccg.colors.fill(uchar4(255, 255, 255, 255));
   }
   /* TODO(sergey): Allocate memory for loose elements. */
 }
@@ -396,6 +402,9 @@ std::unique_ptr<SubdivCCG> BKE_subdiv_to_ccg(Subdiv &subdiv,
       stats_end(&subdiv.stats, SUBDIV_STATS_SUBDIV_TO_CCG);
       return nullptr;
     }
+    if (settings.need_color) {
+      BKE_subdiv_ccg_colors_init_from_paint(*subdiv_ccg, coarse_mesh);
+    }
   }
   stats_end(&subdiv.stats, SUBDIV_STATS_SUBDIV_TO_CCG);
   return subdiv_ccg;
@@ -617,6 +626,14 @@ static void average_grid_element_value_v3(float a[3], float b[3])
   copy_v3_v3(b, a);
 }
 
+static uchar4 color_float_to_byte(const float4 &color)
+{
+  return uchar4(uchar(std::clamp(int(color.x + 0.5f), 0, 255)),
+                uchar(std::clamp(int(color.y + 0.5f), 0, 255)),
+                uchar(std::clamp(int(color.z + 0.5f), 0, 255)),
+                uchar(std::clamp(int(color.w + 0.5f), 0, 255)));
+}
+
 static void average_grid_element(SubdivCCG &subdiv_ccg,
                                  const int grid_element_a,
                                  const int grid_element_b)
@@ -632,6 +649,15 @@ static void average_grid_element(SubdivCCG &subdiv_ccg,
     subdiv_ccg.masks[grid_element_a] = mask;
     subdiv_ccg.masks[grid_element_b] = mask;
   }
+  if (!subdiv_ccg.colors.is_empty()) {
+    uchar4 &a = subdiv_ccg.colors[grid_element_a];
+    uchar4 &b = subdiv_ccg.colors[grid_element_b];
+    for (int channel = 0; channel < 4; channel++) {
+      const uchar average = uchar((int(a[channel]) + int(b[channel]) + 1) / 2);
+      a[channel] = average;
+      b[channel] = average;
+    }
+  }
 }
 
 /* Accumulator to hold data during averaging. */
@@ -639,6 +665,7 @@ struct GridElementAccumulator {
   float3 co;
   float3 no;
   float mask;
+  float4 color;
 };
 
 static void element_accumulator_init(GridElementAccumulator &accumulator)
@@ -646,6 +673,7 @@ static void element_accumulator_init(GridElementAccumulator &accumulator)
   zero_v3(accumulator.co);
   zero_v3(accumulator.no);
   accumulator.mask = 0.0f;
+  accumulator.color = float4(0.0f);
 }
 
 static void element_accumulator_add(GridElementAccumulator &accumulator,
@@ -659,6 +687,9 @@ static void element_accumulator_add(GridElementAccumulator &accumulator,
   if (!subdiv_ccg.masks.is_empty()) {
     accumulator.mask += subdiv_ccg.masks[elem];
   }
+  if (!subdiv_ccg.colors.is_empty()) {
+    accumulator.color += float4(subdiv_ccg.colors[elem]);
+  }
 }
 
 static void element_accumulator_mul_fl(GridElementAccumulator &accumulator, const float f)
@@ -666,6 +697,7 @@ static void element_accumulator_mul_fl(GridElementAccumulator &accumulator, cons
   mul_v3_fl(accumulator.co, f);
   mul_v3_fl(accumulator.no, f);
   accumulator.mask *= f;
+  accumulator.color *= f;
 }
 
 static void element_accumulator_copy(SubdivCCG &subdiv_ccg,
@@ -678,6 +710,9 @@ static void element_accumulator_copy(SubdivCCG &subdiv_ccg,
   }
   if (!subdiv_ccg.masks.is_empty()) {
     subdiv_ccg.masks[destination] = accumulator.mask;
+  }
+  if (!subdiv_ccg.colors.is_empty()) {
+    subdiv_ccg.colors[destination] = color_float_to_byte(accumulator.color);
   }
 }
 

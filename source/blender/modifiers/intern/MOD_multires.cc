@@ -149,6 +149,8 @@ static void multires_ccg_settings_init(SubdivToCCGSettings *settings,
   settings->resolution = (1 << level) + 1;
   settings->need_normal = true;
   settings->need_mask = has_mask;
+  /* GBrush: grid colors painted in sculpt mode. */
+  settings->need_color = CustomData_has_layer(&mesh->corner_data, CD_GRID_PAINT_COLOR);
 }
 
 static Mesh *multires_as_ccg(MultiresModifierData *mmd,

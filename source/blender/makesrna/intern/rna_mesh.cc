@@ -12,6 +12,7 @@
 #include "DNA_meshdata_types.h"
 
 #include "BKE_attribute.h"
+#include "BKE_ccg.hh"
 #include "BKE_editmesh.hh"
 #include "BKE_mesh_types.hh"
 
@@ -167,6 +168,46 @@ static bool rna_Mesh_has_multires_color_get(PointerRNA *ptr)
 {
   const Mesh *mesh = static_cast<const Mesh *>(ptr->data);
   return CustomData_has_layer(&mesh->corner_data, CD_GRID_PAINT_COLOR);
+}
+
+static int rna_Mesh_multires_color_grids_get(PointerRNA *ptr)
+{
+  const Mesh *mesh = static_cast<const Mesh *>(ptr->data);
+  const GridPaintColor *layer = static_cast<const GridPaintColor *>(
+      CustomData_get_layer(&mesh->corner_data, CD_GRID_PAINT_COLOR));
+  int count = 0;
+  if (layer) {
+    for (int i = 0; i < mesh->corners_num; i++) {
+      count += (layer[i].data != nullptr);
+    }
+  }
+  return count;
+}
+
+static void rna_Mesh_multires_color_average_get(PointerRNA *ptr, float *values)
+{
+  const Mesh *mesh = static_cast<const Mesh *>(ptr->data);
+  const GridPaintColor *layer = static_cast<const GridPaintColor *>(
+      CustomData_get_layer(&mesh->corner_data, CD_GRID_PAINT_COLOR));
+  double sum[4] = {0.0, 0.0, 0.0, 0.0};
+  double texels = 0.0;
+  if (layer) {
+    for (int i = 0; i < mesh->corners_num; i++) {
+      if (layer[i].data == nullptr || layer[i].level < 1) {
+        continue;
+      }
+      const int size = CCG_grid_size(int(layer[i].level));
+      for (int j = 0; j < size * size; j++) {
+        for (int channel = 0; channel < 4; channel++) {
+          sum[channel] += layer[i].data[4 * j + channel];
+        }
+      }
+      texels += double(size) * size;
+    }
+  }
+  for (int channel = 0; channel < 4; channel++) {
+    values[channel] = texels > 0.0 ? float(sum[channel] / (texels * 255.0)) : 1.0f;
+  }
 }
 
 /** \} */
@@ -3299,6 +3340,20 @@ static void rna_def_mesh(BlenderRNA *brna)
   RNA_def_property_ui_text(
       prop, "Has Multires Color", "True if the mesh has painted multires grid colors (GBrush)");
   RNA_def_property_boolean_funcs(prop, "rna_Mesh_has_multires_color_get", nullptr);
+
+  prop = RNA_def_property(srna, "multires_color_grids", PROP_INT, PROP_NONE);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop, "Multires Color Grids", "Number of painted multires color grids (GBrush)");
+  RNA_def_property_int_funcs(prop, "rna_Mesh_multires_color_grids_get", nullptr, nullptr);
+
+  prop = RNA_def_property(srna, "multires_color_average", PROP_FLOAT, PROP_NONE);
+  RNA_def_property_array(prop, 4);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(prop,
+                           "Multires Color Average",
+                           "Average RGBA of the painted multires color grids, white if none (GBrush)");
+  RNA_def_property_float_funcs(prop, "rna_Mesh_multires_color_average_get", nullptr, nullptr);
   RNA_define_verify_sdna(true);
 
   prop = RNA_def_property(srna, "texco_mesh", PROP_POINTER, PROP_NONE);

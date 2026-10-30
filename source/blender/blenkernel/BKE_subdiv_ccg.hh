@@ -68,6 +68,8 @@ struct SubdivToCCGSettings {
   /** Denotes which extra layers to be added to CCG elements. */
   bool need_normal;
   bool need_mask;
+  /** GBrush: also build #SubdivCCG::colors from the grid color layer of the mesh. */
+  bool need_color = false;
 };
 
 struct SubdivCCGCoord {
@@ -152,6 +154,11 @@ struct SubdivCCG : NonCopyable {
   Array<float3> normals;
   /** Optional mask values with the same indexing as #positions. */
   Array<float> masks;
+  /**
+   * GBrush: optional 8-bit RGBA colors with the same indexing as #positions. Grids that were
+   * never painted are opaque white.
+   */
+  Array<uchar4> colors;
 
   /** Faces from which grids are emitted. Owned by base mesh. */
   OffsetIndices<int> faces;
@@ -196,10 +203,18 @@ struct SubdivCCG : NonCopyable {
     bool coords = false;
     /** Corresponds to MULTIRES_HIDDEN_MODIFIED. */
     bool hidden = false;
+    /** GBrush: #SubdivCCG::colors changed and the grid color layer is out of date. */
+    bool colors = false;
   } dirty;
 
   ~SubdivCCG();
 };
+
+/**
+ * GBrush: fill #SubdivCCG::colors from the grid color layer of \a mesh. Grids without data stay
+ * white, grids stored at another level are resampled. Does nothing without the layer.
+ */
+void BKE_subdiv_ccg_colors_init_from_paint(SubdivCCG &subdiv_ccg, const Mesh &mesh);
 
 /**
  * Create CCG representation of subdivision surface.
