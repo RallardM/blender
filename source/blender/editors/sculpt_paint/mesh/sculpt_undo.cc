@@ -140,6 +140,8 @@ struct Node {
   Array<float, 0> mask;
 
   Array<float4, 0> loop_col;
+  /** GBrush: 8-bit multires grid colors, `grids.size() * grid_area` elements. */
+  Array<uchar4, 0> grid_col;
 
   /* Mesh. */
 
@@ -813,6 +815,31 @@ static void restore_mask_grids(Object &object, Node &unode, const MutableSpan<bo
   modified_grids.fill_indices(unode.grids.as_span(), true);
 }
 
+static void restore_color_grids(Object &object, Node &unode, const MutableSpan<bool> modified_grids)
+{
+  PRF_scope(ProfileCategory::Editor);
+  SubdivCCG *subdiv_ccg = object.runtime->sculpt_session->subdiv_ccg;
+  if (!subdiv_ccg || subdiv_ccg->colors.is_empty() || unode.grid_col.is_empty()) {
+    return;
+  }
+  MutableSpan<uchar4> colors = subdiv_ccg->colors;
+  const CCGKey key = BKE_subdiv_ccg_key_top_level(*subdiv_ccg);
+
+  const Span<int> grids = unode.grids;
+  MutableSpan<uchar4> undo_colors = unode.grid_col;
+
+  /* Swap so that the same code restores for undo and for redo. */
+  for (const int i : grids.index_range()) {
+    MutableSpan data = colors.slice(bke::ccg::grid_range(key, grids[i]));
+    MutableSpan undo_data = undo_colors.slice(bke::ccg::grid_range(key, i));
+    for (const int offset : data.index_range()) {
+      std::swap(data[offset], undo_data[offset]);
+    }
+  }
+
+  modified_grids.fill_indices(unode.grids.as_span(), true);
+}
+
 static bool restore_face_sets(Object &object,
                               Node &unode,
                               const MutableSpan<bool> modified_face_set_faces)
@@ -1372,6 +1399,23 @@ static void restore_list(bContext *C, Depsgraph *depsgraph, StepData &step_data)
         return;
       }
 
+      if (use_multires_undo(step_data, ss)) {
+        /* GBrush: multires grid colors. */
+        MutableSpan<bke::pbvh::GridsNode> grid_nodes = pbvh.nodes<bke::pbvh::GridsNode>();
+        Array<bool> modified_grids(ss.subdiv_ccg->grids_num, false);
+        for (std::unique_ptr<Node> &unode : step_data.nodes) {
+          restore_color_grids(object, *unode, modified_grids);
+        }
+        const IndexMask changed_grid_nodes = IndexMask::from_predicate(
+            node_mask,
+            memory,
+            [&](const int i) { return indices_contain_true(modified_grids, grid_nodes[i].grids()); },
+            exec_mode::grain_size(1));
+        ss.subdiv_ccg->dirty.colors = true;
+        pbvh.tag_attribute_changed(changed_grid_nodes, SUBDIV_CCG_COLOR_NAME);
+        break;
+      }
+
       const Span<bke::pbvh::MeshNode> nodes = pbvh.nodes<bke::pbvh::MeshNode>();
 
       const Mesh &mesh = *id_cast<const Mesh *>(object.data);
@@ -1553,6 +1597,19 @@ static void store_mask_grids(const SubdivCCG &subdiv_ccg, Node &unode)
   }
   else {
     unode.mask.fill(0.0f);
+  }
+}
+
+static void store_color_grids(const SubdivCCG &subdiv_ccg, Node &unode)
+{
+  if (subdiv_ccg.colors.is_empty()) {
+    return;
+  }
+  const CCGKey key = BKE_subdiv_ccg_key_top_level(subdiv_ccg);
+  for (const int i : unode.grids.index_range()) {
+    const Span<uchar4> src = subdiv_ccg.colors.as_span().slice(
+        bke::ccg::grid_range(key, unode.grids[i]));
+    unode.grid_col.as_mutable_span().slice(bke::ccg::grid_range(key, i)).copy_from(src);
   }
 }
 
@@ -1739,9 +1796,18 @@ static void fill_node_data_grids(const Object &object,
       store_mask_grids(subdiv_ccg, unode);
       break;
     }
-    case Type::Color:
+    case Type::Color: {
+      unode.grid_col.reinitialize(verts_num);
+      store_color_grids(subdiv_ccg, unode);
+      break;
+    }
     case Type::PositionColor: {
-      BLI_assert_unreachable();
+      unode.position.reinitialize(verts_num);
+      /* Needed for original data lookup. */
+      unode.normal.reinitialize(verts_num);
+      store_positions_grids(subdiv_ccg, unode);
+      unode.grid_col.reinitialize(verts_num);
+      store_color_grids(subdiv_ccg, unode);
       break;
     }
     case Type::DyntopoBegin:
@@ -2090,6 +2156,7 @@ static size_t node_size_in_bytes(const Node &node)
   size += node.col.as_span().size_in_bytes();
   size += node.mask.as_span().size_in_bytes();
   size += node.loop_col.as_span().size_in_bytes();
+  size += node.grid_col.as_span().size_in_bytes();
   size += node.vert_indices.as_span().size_in_bytes();
   size += node.corner_indices.as_span().size_in_bytes();
   size += node.vert_hidden.size() / 8;
@@ -2133,6 +2200,7 @@ void push_end_ex(Object &ob, const bool use_nested_undo)
       std::unique_ptr<Node> position_node = std::make_unique<Node>();
       position_node->vert_indices = unode->vert_indices;
       position_node->unique_verts_num = unode->unique_verts_num;
+      position_node->grids = unode->grids;
       position_node->position = std::move(unode->position);
       position_node->orig_position = std::move(unode->orig_position);
       unode->position = {};
@@ -2621,6 +2689,16 @@ std::optional<Span<float4>> orig_color_data_lookup_mesh(const Object & /*object*
     return std::nullopt;
   }
   return unode->col.as_span();
+}
+
+std::optional<Span<uchar4>> orig_grid_color_data_lookup(const Object & /*object*/,
+                                                        const bke::pbvh::GridsNode &node)
+{
+  const undo::Node *unode = undo::get_node(&node, undo::Type::Color);
+  if (!unode || unode->grid_col.is_empty()) {
+    return std::nullopt;
+  }
+  return unode->grid_col.as_span();
 }
 
 std::optional<Span<int>> orig_face_set_data_lookup_mesh(const Object & /*object*/,

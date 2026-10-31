@@ -873,6 +873,10 @@ inline Span<float4> orig_color_data_get_mesh(const Object &object, const bke::pb
   return *orig_color_data_lookup_mesh(object, node);
 }
 
+/** GBrush: original 8-bit multires grid colors of the node from before the current stroke. */
+std::optional<Span<uchar4>> orig_grid_color_data_lookup(const Object &object,
+                                                        const bke::pbvh::GridsNode &node);
+
 std::optional<Span<int>> orig_face_set_data_lookup_mesh(const Object &object,
                                                         const bke::pbvh::MeshNode &node);
 

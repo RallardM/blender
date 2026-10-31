@@ -1122,6 +1122,35 @@ static void restore_color_from_undo_step(Object &object)
   color_attribute.finish();
 }
 
+/** GBrush: restore the multires grid colors of the nodes touched by the current stroke. */
+static void restore_grid_color_from_undo_step(Object &object)
+{
+  SubdivCCG &subdiv_ccg = *object.runtime->sculpt_session->subdiv_ccg;
+  bke::pbvh::Tree &pbvh = *bke::object::pbvh_get(object);
+  MutableSpan<bke::pbvh::GridsNode> nodes = pbvh.nodes<bke::pbvh::GridsNode>();
+  const CCGKey key = BKE_subdiv_ccg_key_top_level(subdiv_ccg);
+  IndexMaskMemory memory;
+  const IndexMask node_mask = IndexMask::from_predicate(
+      nodes.index_range(),
+      memory,
+      [&](const int i) { return orig_grid_color_data_lookup(object, nodes[i]).has_value(); },
+      exec_mode::grain_size(64));
+
+  node_mask.foreach_index(
+      [&](const int i) {
+        const Span<uchar4> orig_data = *orig_grid_color_data_lookup(object, nodes[i]);
+        const Span<int> grids = nodes[i].grids();
+        for (const int j : grids.index_range()) {
+          subdiv_ccg.colors.as_mutable_span()
+              .slice(bke::ccg::grid_range(key, grids[j]))
+              .copy_from(orig_data.slice(bke::ccg::grid_range(key, j)));
+        }
+      },
+      exec_mode::grain_size(1));
+  subdiv_ccg.dirty.colors = true;
+  pbvh.tag_attribute_changed(node_mask, SUBDIV_CCG_COLOR_NAME);
+}
+
 static void restore_face_set_from_undo_step(Object &object)
 {
   SculptSession &ss = *object.runtime->sculpt_session;
@@ -1334,6 +1363,9 @@ static void restore_from_undo_step(const Depsgraph &depsgraph, const Sculpt &sd,
       bke::pbvh::update_normals(depsgraph, object, *bke::object::pbvh_get(object));
       if (brushes::draw_paint_has_color_target(object)) {
         restore_color_from_undo_step(object);
+      }
+      else if (brushes::draw_paint_has_grid_color_target(object)) {
+        restore_grid_color_from_undo_step(object);
       }
       break;
     case SCULPT_BRUSH_TYPE_SMOOTH:
@@ -3353,7 +3385,8 @@ static void push_undo_nodes(const Depsgraph &depsgraph,
     undo::push_nodes(depsgraph, ob, node_mask, undo::Type::Color);
   }
   else if (brush.sculpt_brush_type == SCULPT_BRUSH_TYPE_DRAW_PAINT &&
-           brushes::draw_paint_has_color_target(ob))
+           (brushes::draw_paint_has_color_target(ob) ||
+            brushes::draw_paint_has_grid_color_target(ob)))
   {
     /* Position and color are stored in a single undo type, see #undo::Type::PositionColor. */
     undo::push_nodes(depsgraph, ob, node_mask, undo::Type::PositionColor);
