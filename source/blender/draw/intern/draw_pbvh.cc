@@ -902,6 +902,59 @@ BLI_NOINLINE static void fill_masks_grids(const Object &object,
   }
 }
 
+static GPUVertFormat grid_color_format()
+{
+  GPUVertFormat format = init_format_for_attribute(bke::AttrType::ColorByte, "data");
+  /* Multires objects normally have no color attribute, so the grid colors act as the active
+   * and the render color. */
+  DRW_cdlayer_attr_aliases_add(
+      &format, "c", bke::AttrType::ColorByte, SUBDIV_CCG_COLOR_NAME, true, true);
+  return format;
+}
+
+BLI_NOINLINE static void fill_colors_grids(const Object &object,
+                                           const BitSpan use_flat_layout,
+                                           const IndexMask &node_mask,
+                                           const MutableSpan<gpu::VertBufPtr> vbos)
+{
+  const bke::pbvh::Tree &pbvh = *bke::object::pbvh_get(object);
+  const Span<bke::pbvh::GridsNode> nodes = pbvh.nodes<bke::pbvh::GridsNode>();
+  const SubdivCCG &subdiv_ccg = *object.runtime->sculpt_session->subdiv_ccg;
+  const CCGKey key = BKE_subdiv_ccg_key_top_level(subdiv_ccg);
+  const Span<uchar4> colors = subdiv_ccg.colors;
+  ensure_vbos_allocated_grids(object, grid_color_format(), use_flat_layout, node_mask, vbos);
+  const auto convert = [](const uchar4 &color) {
+    return AttributeConverter<ColorGeometry4b>::convert(
+        ColorGeometry4b(color.x, color.y, color.z, color.w));
+  };
+  node_mask.foreach_index(
+      [&](const int i) {
+        ushort4 *data = vbos[i]->data<ushort4>().data();
+        if (use_flat_layout[i]) {
+          const int grid_size_1 = key.grid_size - 1;
+          for (const int grid : nodes[i].grids()) {
+            const Span<uchar4> grid_colors = colors.slice(bke::ccg::grid_range(key, grid));
+            for (int y = 0; y < grid_size_1; y++) {
+              for (int x = 0; x < grid_size_1; x++) {
+                *data++ = convert(grid_colors[CCG_grid_xy_to_index(key.grid_size, x, y)]);
+                *data++ = convert(grid_colors[CCG_grid_xy_to_index(key.grid_size, x + 1, y)]);
+                *data++ = convert(grid_colors[CCG_grid_xy_to_index(key.grid_size, x + 1, y + 1)]);
+                *data++ = convert(grid_colors[CCG_grid_xy_to_index(key.grid_size, x, y + 1)]);
+              }
+            }
+          }
+        }
+        else {
+          for (const int grid : nodes[i].grids()) {
+            for (const uchar4 &color : colors.slice(bke::ccg::grid_range(key, grid))) {
+              *data++ = convert(color);
+            }
+          }
+        }
+      },
+      exec_mode::grain_size(1));
+}
+
 BLI_NOINLINE static void fill_face_sets_grids(const Object &object,
                                               const OrigMeshData &orig_mesh_data,
                                               const BitSpan use_flat_layout,
@@ -1766,6 +1819,13 @@ Span<gpu::VertBufPtr> DrawCacheImpl::ensure_attribute_data(const Object &object,
         }
       }
       else {
+        const SubdivCCG *subdiv_ccg = object.runtime->sculpt_session->subdiv_ccg;
+        if (std::get<GenericRequest>(attr) == SUBDIV_CCG_COLOR_NAME && subdiv_ccg &&
+            !subdiv_ccg->colors.is_empty())
+        {
+          fill_colors_grids(object, use_flat_layout_, mask, vbos);
+          break;
+        }
         ensure_vbos_allocated_grids(
             object,
             attribute_format(orig_mesh_data, "Dummy", bke::AttrType::Float3),

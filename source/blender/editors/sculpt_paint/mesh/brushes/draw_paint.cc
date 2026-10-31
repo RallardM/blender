@@ -34,9 +34,11 @@
 #include "BKE_subdiv_ccg.hh"
 
 #include "BLI_enumerable_thread_specific.hh"
+#include "BLI_math_color.h"
 #include "BLI_math_vector.hh"
 #include "BLI_task.hh"
 
+#include "IMB_colormanagement.hh"
 #include "IMB_imbuf.hh"
 
 #include "editors/sculpt_paint/mesh/mesh_brush_common.hh"
@@ -140,6 +142,25 @@ static void calc_faces(const Depsgraph &depsgraph,
   }
 }
 
+/** Grid colors are 8-bit sRGB encoded like byte color attributes, blending happens in linear. */
+static float4 grid_color_to_float(const uchar4 &stored)
+{
+  float4 color;
+  rgba_uchar_to_float(color, reinterpret_cast<const uchar *>(&stored));
+  IMB_colormanagement_srgb_to_scene_linear_v3(color, color);
+  return color;
+}
+
+static uchar4 grid_color_from_float(const float4 &color)
+{
+  float4 encoded;
+  IMB_colormanagement_scene_linear_to_srgb_v3(encoded, color);
+  encoded[3] = color[3];
+  uchar4 stored;
+  rgba_float_to_uchar(reinterpret_cast<uchar *>(&stored), encoded);
+  return stored;
+}
+
 /** Sculpt and paint one multires node, the colors live in #SubdivCCG::colors. */
 static void calc_grids(const Depsgraph &depsgraph,
                        const Sculpt &sd,
@@ -181,16 +202,12 @@ static void calc_grids(const Depsgraph &depsgraph,
         continue;
       }
       uchar4 &stored = colors[grid_range[offset_in_grid]];
-      const float4 current = float4(stored) * (1.0f / 255.0f);
+      const float4 current = grid_color_to_float(stored);
       /* The blend functions expect the source color to be premultiplied. */
       const float4 source(brush_color * opacity, opacity);
       float4 blended;
       IMB_blend_color_float(blended, current, source, IMB_BlendMode(brush.blend));
-      const float4 result = math::clamp(blended, 0.0f, 1.0f) * 255.0f;
-      stored = uchar4(uchar(result.x + 0.5f),
-                      uchar(result.y + 0.5f),
-                      uchar(result.z + 0.5f),
-                      uchar(result.w + 0.5f));
+      stored = grid_color_from_float(math::clamp(blended, 0.0f, 1.0f));
     }
   }
 }
@@ -226,6 +243,7 @@ static void do_draw_paint_grids(const Depsgraph &depsgraph,
 
   subdiv_ccg.dirty.colors = true;
   pbvh.tag_positions_changed(node_mask);
+  pbvh.tag_attribute_changed(node_mask, SUBDIV_CCG_COLOR_NAME);
   pbvh.flush_bounds_to_parents();
 }
 

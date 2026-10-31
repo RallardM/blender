@@ -216,6 +216,9 @@ struct SubdivCCG : NonCopyable {
  */
 void BKE_subdiv_ccg_colors_init_from_paint(SubdivCCG &subdiv_ccg, const Mesh &mesh);
 
+/** GBrush: name of the attribute request that draws #SubdivCCG::colors in the viewport. */
+inline constexpr const char *SUBDIV_CCG_COLOR_NAME = "multires_color";
+
 /**
  * GBrush: store #SubdivCCG::colors back into the grid color layer of \a mesh. Grids that are
  * white and have no stored data stay empty, grids stored at another level are only replaced when

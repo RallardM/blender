@@ -21,6 +21,7 @@
 #include "BKE_object.hh"
 #include "BKE_object_types.hh"
 #include "BKE_paint.hh"
+#include "BKE_subdiv_ccg.hh"
 
 #include "BLI_math_matrix.hh"
 
@@ -149,6 +150,11 @@ Vector<SculptBatch> sculpt_batches_get(const Object *ob, SculptBatchFeature feat
   if (features & SCULPT_BATCH_VERTEX_COLOR) {
     if (const char *name = mesh->active_color_attribute) {
       attrs.append(pbvh::GenericRequest(name));
+    }
+    /* GBrush: colors painted into multires grids. */
+    const SculptSession *ss = ob->runtime->sculpt_session;
+    if (ss && ss->subdiv_ccg && !ss->subdiv_ccg->colors.is_empty()) {
+      attrs.append(pbvh::GenericRequest(SUBDIV_CCG_COLOR_NAME));
     }
   }
 

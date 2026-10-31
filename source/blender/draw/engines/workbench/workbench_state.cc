@@ -13,6 +13,7 @@
 #include "BKE_mesh_types.hh"
 #include "BKE_paint.hh"
 #include "BKE_paint_bvh.hh"
+#include "BKE_subdiv_ccg.hh"
 
 #include "DEG_depsgraph_query.hh"
 
@@ -310,6 +311,15 @@ ObjectState::ObjectState(const DRWContext *draw_ctx,
     return mesh_has_color_attribute(mesh);
   };
 
+  /* GBrush: colors painted into multires grids are drawn without a color attribute. */
+  const auto has_grid_color = [&]() {
+    if (!sculpt_pbvh || !ob->runtime || !ob->runtime->sculpt_session) {
+      return false;
+    }
+    const SubdivCCG *subdiv_ccg = ob->runtime->sculpt_session->subdiv_ccg;
+    return subdiv_ccg && !subdiv_ccg->colors.is_empty();
+  };
+
   const auto has_uv = [&]() {
     if (ob->type != OB_MESH) {
       return false;
@@ -321,7 +331,7 @@ ObjectState::ObjectState(const DRWContext *draw_ctx,
   if (color_type == V3D_SHADING_TEXTURE_COLOR && (!has_uv() || ob->dt < OB_TEXTURE)) {
     color_type = V3D_SHADING_MATERIAL_COLOR;
   }
-  else if (color_type == V3D_SHADING_VERTEX_COLOR && !has_color()) {
+  else if (color_type == V3D_SHADING_VERTEX_COLOR && !has_color() && !has_grid_color()) {
     color_type = V3D_SHADING_MATERIAL_COLOR;
   }
 
