@@ -13,6 +13,7 @@
 
 #include "BLI_array.hh"
 #include "BLI_array_utils.hh"
+#include "BLI_color.hh"
 #include "BLI_listbase_iterator.hh"
 #include "BLI_math_vector.h"
 #include "BLI_math_vector.hh"
@@ -26,6 +27,7 @@
 #include "BKE_mesh.hh"
 #include "BKE_mesh_mapping.hh"
 #include "BKE_subdiv.hh"
+#include "BKE_subdiv_ccg.hh"
 #include "BKE_subdiv_deform.hh"
 #include "BKE_subdiv_eval.hh"
 #include "BKE_subdiv_foreach.hh"
@@ -50,6 +52,9 @@ struct SubdivMeshContext {
   Subdiv *subdiv;
   Mesh *subdiv_mesh;
   MutableSpan<float3> subdiv_positions;
+  /** GBrush: sampled multires grid colors on the result, only set with a color sampler. */
+  const ColorSampler *color_sampler;
+  bke::SpanAttributeWriter<ColorGeometry4b> grid_colors;
   MutableSpan<int2> subdiv_edges;
   MutableSpan<int> subdiv_corner_verts;
   MutableSpan<int> subdiv_corner_edges;
@@ -753,6 +758,19 @@ static void subdiv_mesh_tls_free(void *tls_v)
 /** \name Evaluation helper functions
  * \{ */
 
+static void subdiv_vert_grid_color_evaluate(const SubdivMeshContext *ctx,
+                                            const int ptex_face_index,
+                                            const float u,
+                                            const float v,
+                                            const int subdiv_vert_index)
+{
+  if (ctx->color_sampler) {
+    const uchar4 color = ctx->color_sampler->sample(ptex_face_index, u, v);
+    ctx->grid_colors.span[subdiv_vert_index] = ColorGeometry4b(
+        color.x, color.y, color.z, color.w);
+  }
+}
+
 static void subdiv_vert_orco_evaluate(const SubdivMeshContext *ctx,
                                       const int ptex_face_index,
                                       const float u,
@@ -927,6 +945,13 @@ static bool subdiv_mesh_topology_info(const ForeachContext *foreach_context,
                                          subdiv_context->subdiv_corner_attrs,
                                          subdiv_context->subdiv_corner_attr_spans);
 
+  if (subdiv_context->settings->color_sampler) {
+    subdiv_context->color_sampler = subdiv_context->settings->color_sampler;
+    subdiv_context->grid_colors = attributes.lookup_or_add_for_write_span<ColorGeometry4b>(
+        SUBDIV_CCG_COLOR_NAME, AttrDomain::Point);
+    subdiv_context->grid_colors.span.fill(ColorGeometry4b(255, 255, 255, 255));
+  }
+
   subdiv_mesh_ctx_cache_custom_data_layers(subdiv_context);
   subdiv_mesh_prepare_accumulator(subdiv_context, num_vertices);
   subdiv_mesh.runtime->subsurf_face_dot_tags.clear();
@@ -1020,6 +1045,7 @@ static void evaluate_vert_and_apply_displacement_copy(const SubdivMeshContext *c
   subdiv_position += D;
   /* Evaluate undeformed texture coordinate. */
   subdiv_vert_orco_evaluate(ctx, ptex_face_index, u, v, subdiv_vert_index);
+  subdiv_vert_grid_color_evaluate(ctx, ptex_face_index, u, v, subdiv_vert_index);
   /* Remove face-dot flag. This can happen if there is more than one subsurf modifier. */
   ctx->subdiv_mesh->runtime->subsurf_face_dot_tags[subdiv_vert_index].reset();
 }
@@ -1048,6 +1074,7 @@ static void evaluate_vert_and_apply_displacement_interpolate(
   add_v3_v3(subdiv_position, D);
   /* Evaluate undeformed texture coordinate. */
   subdiv_vert_orco_evaluate(ctx, ptex_face_index, u, v, subdiv_vert_index);
+  subdiv_vert_grid_color_evaluate(ctx, ptex_face_index, u, v, subdiv_vert_index);
 }
 
 static void subdiv_mesh_vert_displacement_every_corner_or_edge(
@@ -1188,6 +1215,7 @@ static void subdiv_mesh_vert_inner(const ForeachContext *foreach_context,
   ctx->subdiv_positions[subdiv_vert_index] = eval_final_point(subdiv, ptex_face_index, u, v);
   subdiv_mesh_tag_center_vert(coarse_face, subdiv_vert_index, u, v, subdiv_mesh);
   subdiv_vert_orco_evaluate(ctx, ptex_face_index, u, v, subdiv_vert_index);
+  subdiv_vert_grid_color_evaluate(ctx, ptex_face_index, u, v, subdiv_vert_index);
 }
 
 /** \} */
@@ -1591,6 +1619,9 @@ Mesh *subdiv_to_mesh(Subdiv *subdiv, const ToMeshSettings *settings, const Mesh 
 
   for (bke::SpanAttributeWriter<float2> &attr : subdiv_context.uv_maps) {
     attr.finish();
+  }
+  if (subdiv_context.color_sampler) {
+    subdiv_context.grid_colors.finish();
   }
   for (bke::GSpanAttributeWriter &attr : subdiv_context.subdiv_vert_attrs) {
     attr.finish();

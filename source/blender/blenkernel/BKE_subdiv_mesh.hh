@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "BLI_math_vector_types.hh"
 #include "BLI_offset_indices.hh"
 
@@ -18,6 +20,19 @@ struct Mesh;
 namespace bke::subdiv {
 
 struct Subdiv;
+
+/** GBrush: evaluates an 8-bit RGBA color at a point of the limit surface, thread safe. */
+struct ColorSampler {
+  virtual ~ColorSampler() = default;
+  /** \param ptex_face_index, u, v: the same coordinates the displacement evaluator receives. */
+  virtual uchar4 sample(int ptex_face_index, float u, float v) const = 0;
+};
+
+/**
+ * GBrush: sampler reading the multires grid color layer of \a mesh, null when the mesh has no
+ * such layer. Grids without data read as opaque white. The mesh has to outlive the sampler.
+ */
+std::unique_ptr<ColorSampler> grid_color_sampler_create(const Mesh &mesh);
 
 struct ToMeshSettings {
   /**
@@ -30,6 +45,8 @@ struct ToMeshSettings {
   int resolution = -1;
   /** When true, only edges emitted from coarse ones will be displayed. */
   bool use_optimal_display = false;
+  /** GBrush: when set, the result gets a point color attribute with the sampled colors. */
+  const ColorSampler *color_sampler = nullptr;
 };
 
 /** Create real hi-res mesh from subdivision, all geometry is "real". */

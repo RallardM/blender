@@ -282,6 +282,7 @@ set(SRC
   intern/subdiv_displacement_multires.cc
   intern/subdiv_eval.cc
   intern/subdiv_foreach.cc
+  intern/subdiv_grid_color_sampler.cc
   intern/subdiv_mesh.cc
   intern/subdiv_modifier.cc
   intern/subdiv_stats.cc

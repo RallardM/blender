@@ -18,6 +18,7 @@
 #include "DNA_object_types.h"
 #include "DNA_screen_types.h"
 
+#include "BKE_attribute.h"
 #include "BKE_context.hh"
 #include "BKE_customdata.hh"
 #include "BKE_mesh.hh"
@@ -129,7 +130,19 @@ static Mesh *multires_as_mesh(const MultiresModifierData *mmd,
     return result;
   }
   bke::subdiv::displacement_attach_from_multires(subdiv, mesh, mmd);
+  /* GBrush: colors painted into the grids become a point color attribute of the result. */
+  const std::unique_ptr<bke::subdiv::ColorSampler> color_sampler =
+      bke::subdiv::grid_color_sampler_create(*mesh);
+  mesh_settings.color_sampler = color_sampler.get();
   result = bke::subdiv::subdiv_to_mesh(subdiv, &mesh_settings, mesh);
+  if (color_sampler && result && result != mesh) {
+    if (!result->active_color_attribute) {
+      BKE_id_attributes_active_color_set(&result->id, SUBDIV_CCG_COLOR_NAME);
+    }
+    if (!result->default_color_attribute) {
+      BKE_id_attributes_default_color_set(&result->id, SUBDIV_CCG_COLOR_NAME);
+    }
+  }
   return result;
 }
 
