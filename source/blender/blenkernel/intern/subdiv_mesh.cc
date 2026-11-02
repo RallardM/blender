@@ -947,9 +947,17 @@ static bool subdiv_mesh_topology_info(const ForeachContext *foreach_context,
 
   if (subdiv_context->settings->color_sampler) {
     subdiv_context->color_sampler = subdiv_context->settings->color_sampler;
+    /* The grid colors replace an attribute of the same name that was interpolated from the base
+     * mesh, which could also have another type or domain. */
+    attributes.remove(SUBDIV_CCG_COLOR_NAME);
     subdiv_context->grid_colors = attributes.lookup_or_add_for_write_span<ColorGeometry4b>(
         SUBDIV_CCG_COLOR_NAME, AttrDomain::Point);
-    subdiv_context->grid_colors.span.fill(ColorGeometry4b(255, 255, 255, 255));
+    if (!subdiv_context->grid_colors) {
+      subdiv_context->color_sampler = nullptr;
+    }
+    else {
+      subdiv_context->grid_colors.span.fill(ColorGeometry4b(255, 255, 255, 255));
+    }
   }
 
   subdiv_mesh_ctx_cache_custom_data_layers(subdiv_context);
