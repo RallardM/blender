@@ -474,6 +474,32 @@ static void multires_grid_paint_mask_downsample(GridPaintMask *gpm, const int le
   }
 }
 
+/** GBrush: reallocate a grid color at a lower resolution, keeping the colors of the shared points. */
+static void multires_grid_paint_color_downsample(GridPaintColor *gpc, const int level)
+{
+  if (gpc->data == nullptr || level < 1 || level >= int(gpc->level)) {
+    return;
+  }
+  const int src_size = CCG_grid_size(int(gpc->level));
+  const int dst_size = CCG_grid_size(level);
+  const int skip = (src_size - 1) / (dst_size - 1);
+  unsigned char *data = MEM_new_array_uninitialized<unsigned char>(
+      size_t(square_i(dst_size)) * 4, __func__);
+  for (int y = 0; y < dst_size; y++) {
+    for (int x = 0; x < dst_size; x++) {
+      const unsigned char *src = gpc->data + 4 * ((y * skip) * src_size + x * skip);
+      unsigned char *dst = data + 4 * (y * dst_size + x);
+      dst[0] = src[0];
+      dst[1] = src[1];
+      dst[2] = src[2];
+      dst[3] = src[3];
+    }
+  }
+  MEM_delete(gpc->data);
+  gpc->data = data;
+  gpc->level = level;
+}
+
 static void multires_del_higher(MultiresModifierData *mmd, Object *ob, const int lvl)
 {
   Mesh *mesh = id_cast<Mesh *>(ob->data);
@@ -481,6 +507,7 @@ static void multires_del_higher(MultiresModifierData *mmd, Object *ob, const int
   const int levels = mmd->totlvl - lvl;
   MDisps *mdisps;
   GridPaintMask *gpm;
+  GridPaintColor *gpc;
 
   multires_set_tot_mdisps(mesh, mmd->totlvl);
   multiresModifier_ensure_external_read(mesh, mmd);
@@ -488,6 +515,8 @@ static void multires_del_higher(MultiresModifierData *mmd, Object *ob, const int
       CustomData_get_layer_for_write(&mesh->corner_data, CD_MDISPS, mesh->corners_num));
   gpm = static_cast<GridPaintMask *>(
       CustomData_get_layer_for_write(&mesh->corner_data, CD_GRID_PAINT_MASK, mesh->corners_num));
+  gpc = static_cast<GridPaintColor *>(
+      CustomData_get_layer_for_write(&mesh->corner_data, CD_GRID_PAINT_COLOR, mesh->corners_num));
 
   multires_force_sculpt_rebuild(ob);
 
@@ -523,6 +552,9 @@ static void multires_del_higher(MultiresModifierData *mmd, Object *ob, const int
 
           if (gpm) {
             multires_grid_paint_mask_downsample(&gpm[corner], lvl);
+          }
+          if (gpc) {
+            multires_grid_paint_color_downsample(&gpc[corner], lvl);
           }
         }
       }

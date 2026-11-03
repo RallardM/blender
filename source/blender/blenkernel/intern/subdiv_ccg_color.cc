@@ -12,6 +12,7 @@
 #include <cmath>
 
 #include "BLI_array.hh"
+#include "BLI_math_vector.hh"
 #include "BLI_task.hh"
 
 #include "MEM_guardedalloc.h"
@@ -56,6 +57,49 @@ static void sample_grid(const GridPaintColor &src, const int dst_size, MutableSp
         result[channel] = (unsigned char)(std::clamp(int(value + 0.5f), 0, 255));
       }
       out = uchar4(result[0], result[1], result[2], result[3]);
+    }
+  }
+}
+
+/** Bilinear lookup in a square grid of colors, \a fx and \a fy are in texels. */
+static float4 sample_color_bilinear(const Span<uchar4> grid,
+                                    const int size,
+                                    const float fx,
+                                    const float fy)
+{
+  const int x0 = std::min(int(fx), size - 2);
+  const int y0 = std::min(int(fy), size - 2);
+  const float tx = fx - x0;
+  const float ty = fy - y0;
+  const float4 c00(grid[y0 * size + x0]);
+  const float4 c10(grid[y0 * size + x0 + 1]);
+  const float4 c01(grid[(y0 + 1) * size + x0]);
+  const float4 c11(grid[(y0 + 1) * size + x0 + 1]);
+  return math::interpolate(math::interpolate(c00, c10, tx), math::interpolate(c01, c11, tx), ty);
+}
+
+/**
+ * The CCG is at a lower resolution than the stored grid. Instead of replacing the stored grid, add
+ * the change the paint made (new minus old, both at the CCG resolution) to its fine colors.
+ */
+static void apply_color_delta(GridPaintColor &stored,
+                              const int stored_size,
+                              const Span<uchar4> old_colors,
+                              const Span<uchar4> new_colors,
+                              const int ccg_size)
+{
+  for (int y = 0; y < stored_size; y++) {
+    for (int x = 0; x < stored_size; x++) {
+      const float fx = x * float(ccg_size - 1) / float(stored_size - 1);
+      const float fy = y * float(ccg_size - 1) / float(stored_size - 1);
+      const float4 delta = sample_color_bilinear(new_colors, ccg_size, fx, fy) -
+                           sample_color_bilinear(old_colors, ccg_size, fx, fy);
+      unsigned char *texel = stored.data + 4 * (y * stored_size + x);
+      for (int channel = 0; channel < 4; channel++) {
+        texel[channel] = (unsigned char)(std::clamp(int(texel[channel] + delta[channel] + 0.5f),
+                                                    0,
+                                                    255));
+      }
     }
   }
 }
@@ -132,6 +176,11 @@ void BKE_subdiv_ccg_colors_write_to_paint(const SubdivCCG &subdiv_ccg, Mesh &mes
             same = resampled[i] == src[i];
           }
           if (same) {
+            continue;
+          }
+          if (CCG_grid_size(int(dst.level)) > grid_size) {
+            /* Keep the finer stored resolution and apply only what changed. */
+            apply_color_delta(dst, CCG_grid_size(int(dst.level)), resampled, src, grid_size);
             continue;
           }
         }

@@ -6,6 +6,7 @@
  * \ingroup RNA
  */
 
+#include <algorithm>
 #include <cstdlib>
 
 #include "DNA_mesh_types.h"
@@ -182,6 +183,38 @@ static int rna_Mesh_multires_color_grids_get(PointerRNA *ptr)
     }
   }
   return count;
+}
+
+static int multires_color_level_get(const Mesh *mesh, const bool want_max)
+{
+  const GridPaintColor *layer = static_cast<const GridPaintColor *>(
+      CustomData_get_layer(&mesh->corner_data, CD_GRID_PAINT_COLOR));
+  int result = 0;
+  if (layer) {
+    for (int i = 0; i < mesh->corners_num; i++) {
+      if (layer[i].data == nullptr) {
+        continue;
+      }
+      const int level = int(layer[i].level);
+      if (result == 0) {
+        result = level;
+      }
+      else {
+        result = want_max ? std::max(result, level) : std::min(result, level);
+      }
+    }
+  }
+  return result;
+}
+
+static int rna_Mesh_multires_color_min_level_get(PointerRNA *ptr)
+{
+  return multires_color_level_get(static_cast<const Mesh *>(ptr->data), false);
+}
+
+static int rna_Mesh_multires_color_max_level_get(PointerRNA *ptr)
+{
+  return multires_color_level_get(static_cast<const Mesh *>(ptr->data), true);
 }
 
 static void rna_Mesh_multires_color_average_get(PointerRNA *ptr, float *values)
@@ -3346,6 +3379,18 @@ static void rna_def_mesh(BlenderRNA *brna)
   RNA_def_property_ui_text(
       prop, "Multires Color Grids", "Number of painted multires color grids (GBrush)");
   RNA_def_property_int_funcs(prop, "rna_Mesh_multires_color_grids_get", nullptr, nullptr);
+
+  prop = RNA_def_property(srna, "multires_color_min_level", PROP_INT, PROP_NONE);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop, "Multires Color Min Level", "Lowest level of the painted multires color grids (GBrush)");
+  RNA_def_property_int_funcs(prop, "rna_Mesh_multires_color_min_level_get", nullptr, nullptr);
+
+  prop = RNA_def_property(srna, "multires_color_max_level", PROP_INT, PROP_NONE);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(
+      prop, "Multires Color Max Level", "Highest level of the painted multires color grids (GBrush)");
+  RNA_def_property_int_funcs(prop, "rna_Mesh_multires_color_max_level_get", nullptr, nullptr);
 
   prop = RNA_def_property(srna, "multires_color_average", PROP_FLOAT, PROP_NONE);
   RNA_def_property_array(prop, 4);
