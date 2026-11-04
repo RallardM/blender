@@ -9,6 +9,7 @@
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
+#include "BKE_ccg.hh"
 #include "BKE_mesh.hh"
 #include "BKE_object_types.hh"
 #include "BKE_paint.hh"
@@ -17,6 +18,7 @@
 
 #include "BLI_array.hh"
 #include "BLI_enumerable_thread_specific.hh"
+#include "BLI_math_color.h"
 #include "BLI_task.hh"
 
 #include "editors/sculpt_paint/mesh/mesh_brush_common.hh"
@@ -24,6 +26,8 @@
 #include "editors/sculpt_paint/mesh/sculpt_boundary.hh"
 #include "editors/sculpt_paint/mesh/sculpt_intern.hh"
 #include "editors/sculpt_paint/mesh/sculpt_smooth.hh"
+
+#include "IMB_colormanagement.hh"
 
 #include "bmesh.hh"
 
@@ -297,6 +301,112 @@ void do_smooth_brush(const Depsgraph &depsgraph,
   }
   pbvh.tag_positions_changed(node_mask);
   pbvh.update_bounds(depsgraph, object);
+}
+
+/* GBrush: smoothing of the 8-bit multires grid colors. */
+
+struct GridColorLocalData {
+  Vector<float3> positions;
+  Vector<float> factors;
+  Vector<float> distances;
+  Vector<int> neighbor_offsets;
+  Vector<int> neighbor_data;
+  Vector<uchar4> new_colors;
+};
+
+static float4 grid_color_decode(const uchar4 &stored)
+{
+  float4 color;
+  rgba_uchar_to_float(color, reinterpret_cast<const uchar *>(&stored));
+  IMB_colormanagement_srgb_to_scene_linear_v3(color, color);
+  return color;
+}
+
+static uchar4 grid_color_encode(const float4 &color)
+{
+  float4 encoded;
+  IMB_colormanagement_scene_linear_to_srgb_v3(encoded, color);
+  encoded[3] = color[3];
+  uchar4 stored;
+  rgba_float_to_uchar(reinterpret_cast<uchar *>(&stored), encoded);
+  return stored;
+}
+
+static void calc_grid_colors(const Depsgraph &depsgraph,
+                             const Object &object,
+                             const Brush &brush,
+                             const float strength,
+                             const bke::pbvh::GridsNode &node,
+                             GridColorLocalData &tls)
+{
+  const SculptSession &ss = *object.runtime->sculpt_session;
+  SubdivCCG &subdiv_ccg = *ss.subdiv_ccg;
+  const CCGKey key = BKE_subdiv_ccg_key_top_level(subdiv_ccg);
+  const Span<int> grids = node.grids();
+
+  const Span<float3> positions = gather_grids_positions(subdiv_ccg, grids, tls.positions);
+  calc_factors_common_grids(depsgraph, brush, object, positions, node, tls.factors, tls.distances);
+  scale_factors(tls.factors, strength);
+  const Span<float> factors = tls.factors;
+
+  const GroupedSpan<int> neighbors = calc_vert_neighbors(
+      subdiv_ccg, grids, tls.neighbor_offsets, tls.neighbor_data);
+
+  MutableSpan<uchar4> colors = subdiv_ccg.colors;
+  tls.new_colors.resize(positions.size());
+  const MutableSpan<uchar4> new_colors = tls.new_colors;
+
+  /* Read all neighbors first, then write, so the result does not depend on the vertex order. */
+  for (const int i : grids.index_range()) {
+    const IndexRange node_range = bke::ccg::grid_range(key, i);
+    const IndexRange grid_range = bke::ccg::grid_range(key, grids[i]);
+    for (const int offset : IndexRange(key.grid_area)) {
+      const int node_vert = node_range[offset];
+      const uchar4 stored = colors[grid_range[offset]];
+      new_colors[node_vert] = stored;
+      if (factors[node_vert] <= 0.0f || neighbors[node_vert].is_empty()) {
+        continue;
+      }
+      float4 average(0.0f);
+      for (const int neighbor : neighbors[node_vert]) {
+        average += grid_color_decode(colors[neighbor]);
+      }
+      average /= float(neighbors[node_vert].size());
+      const float4 current = grid_color_decode(stored);
+      new_colors[node_vert] = grid_color_encode(
+          math::clamp(math::interpolate(current, average, factors[node_vert]), 0.0f, 1.0f));
+    }
+  }
+  for (const int i : grids.index_range()) {
+    const IndexRange node_range = bke::ccg::grid_range(key, i);
+    const IndexRange grid_range = bke::ccg::grid_range(key, grids[i]);
+    for (const int offset : IndexRange(key.grid_area)) {
+      if (factors[node_range[offset]] > 0.0f) {
+        colors[grid_range[offset]] = new_colors[node_range[offset]];
+      }
+    }
+  }
+}
+
+void do_smooth_grid_colors(const Depsgraph &depsgraph,
+                           const Sculpt &sd,
+                           Object &object,
+                           const IndexMask &node_mask,
+                           const float strength)
+{
+  const Brush &brush = *BKE_paint_brush_for_read(&sd.paint);
+  bke::pbvh::Tree &pbvh = *bke::object::pbvh_get(object);
+  SubdivCCG &subdiv_ccg = *object.runtime->sculpt_session->subdiv_ccg;
+  MutableSpan<bke::pbvh::GridsNode> nodes = pbvh.nodes<bke::pbvh::GridsNode>();
+  threading::EnumerableThreadSpecific<GridColorLocalData> all_tls;
+  node_mask.foreach_index(
+      [&](const int i) {
+        GridColorLocalData &tls = all_tls.local();
+        calc_grid_colors(depsgraph, object, brush, strength, nodes[i], tls);
+      },
+      exec_mode::grain_size(1));
+  subdiv_ccg.dirty.colors = true;
+  pbvh.tag_attribute_changed(node_mask, SUBDIV_CCG_COLOR_NAME);
 }
 
 }  // namespace blender::ed::sculpt_paint::brushes

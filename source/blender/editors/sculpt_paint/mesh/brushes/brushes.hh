@@ -197,6 +197,16 @@ void do_scene_project_brush(const Depsgraph &depsgraph,
                             Object &object,
                             const IndexMask &node_mask);
 /** Smooth positions with neighboring vertices. */
+/**
+ * GBrush: smooth the 8-bit multires grid colors of the nodes in \a node_mask towards the average
+ * of their grid neighbors. Used by the Smooth brush when it affects color on a multires object.
+ */
+void do_smooth_grid_colors(const Depsgraph &depsgraph,
+                           const Sculpt &sd,
+                           Object &object,
+                           const IndexMask &node_mask,
+                           float strength);
+
 void do_smooth_brush(const Depsgraph &depsgraph,
                      const Sculpt &sd,
                      Object &object,

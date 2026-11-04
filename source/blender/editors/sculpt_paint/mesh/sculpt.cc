@@ -1373,10 +1373,13 @@ static void restore_from_undo_step(const Depsgraph &depsgraph, const Sculpt &sd,
         restore_position_from_undo_step(depsgraph, object);
         bke::pbvh::update_normals(depsgraph, object, *bke::object::pbvh_get(object));
       }
-      if (brush->smooth_affects != BRUSH_SMOOTH_AFFECTS_MESH &&
-          brushes::draw_paint_has_color_target(object))
-      {
-        restore_color_from_undo_step(object);
+      if (brush->smooth_affects != BRUSH_SMOOTH_AFFECTS_MESH) {
+        if (brushes::draw_paint_has_color_target(object)) {
+          restore_color_from_undo_step(object);
+        }
+        else if (brushes::draw_paint_has_grid_color_target(object)) {
+          restore_grid_color_from_undo_step(object);
+        }
       }
       break;
     default:
@@ -3351,13 +3354,15 @@ static brushes::CursorSampleResult calc_brush_node_mask(const Depsgraph &depsgra
 
 /**
  * True when a Smooth brush stroke also smooths colors: the brush asks for it and the object has
- * a color attribute that can be written in this stroke (regular mesh, not multires or dyntopo).
+ * colors that can be written in this stroke (a color attribute of a regular mesh, or the grid
+ * colors of a multires object, not dyntopo).
  */
 static bool smooth_affects_color_target(const Brush &brush, const Object &ob)
 {
   return brush.sculpt_brush_type == SCULPT_BRUSH_TYPE_SMOOTH &&
          brush.smooth_affects != BRUSH_SMOOTH_AFFECTS_MESH &&
-         brushes::draw_paint_has_color_target(ob);
+         (brushes::draw_paint_has_color_target(ob) ||
+          brushes::draw_paint_has_grid_color_target(ob));
 }
 
 static void push_undo_nodes(const Depsgraph &depsgraph,
@@ -3603,7 +3608,14 @@ static void do_brush_action(const Depsgraph &depsgraph,
       }
       /* Inverted strokes (enhance details) have no color equivalent, so they leave color alone. */
       if (smooth_affects_color_target(brush, ob) && ss.cache->bstrength > 0.0f) {
-        color::do_blur_brush(depsgraph, sd, ob, node_mask);
+        if (brushes::draw_paint_has_grid_color_target(ob)) {
+          /* GBrush: multires grid colors. */
+          brushes::do_smooth_grid_colors(
+              depsgraph, sd, ob, node_mask, std::clamp(ss.cache->bstrength, 0.0f, 1.0f));
+        }
+        else {
+          color::do_blur_brush(depsgraph, sd, ob, node_mask);
+        }
       }
       break;
     }
