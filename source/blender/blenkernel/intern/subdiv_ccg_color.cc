@@ -41,21 +41,10 @@ static void sample_grid(const GridPaintColor &src, const int dst_size, MutableSp
       }
       const float fx = x * float(src_size - 1) / float(dst_size - 1);
       const float fy = y * float(src_size - 1) / float(dst_size - 1);
-      const int x0 = std::min(int(fx), src_size - 2);
-      const int y0 = std::min(int(fy), src_size - 2);
-      const float tx = fx - x0;
-      const float ty = fy - y0;
-      const unsigned char *t00 = src_data + 4 * (y0 * src_size + x0);
-      const unsigned char *t10 = t00 + 4;
-      const unsigned char *t01 = t00 + 4 * src_size;
-      const unsigned char *t11 = t01 + 4;
+      /* Going to a coarser grid averages the covered texels, so thin strokes are not lost. */
+      const float footprint = std::max(1.0f, float(src_size - 1) / float(dst_size - 1));
       unsigned char result[4];
-      for (int channel = 0; channel < 4; channel++) {
-        const float bottom = t00[channel] + (t10[channel] - t00[channel]) * tx;
-        const float top = t01[channel] + (t11[channel] - t01[channel]) * tx;
-        const float value = bottom + (top - bottom) * ty;
-        result[channel] = (unsigned char)(std::clamp(int(value + 0.5f), 0, 255));
-      }
+      bke::subdiv::grid_color_filtered(src_data, src_size, fx, fy, footprint, result);
       out = uchar4(result[0], result[1], result[2], result[3]);
     }
   }

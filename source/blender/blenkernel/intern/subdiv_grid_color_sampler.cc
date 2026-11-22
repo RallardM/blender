@@ -18,6 +18,7 @@
 #include "BKE_ccg.hh"
 #include "BKE_customdata.hh"
 #include "BKE_subdiv.hh"
+#include "BKE_subdiv_ccg.hh"
 #include "BKE_subdiv_mesh.hh"
 
 namespace blender::bke::subdiv {
@@ -34,10 +35,11 @@ class GridColorSampler final : public ColorSampler {
   OffsetIndices<int> faces_;
   const GridPaintColor *layer_;
   Array<PtexFaceCorner> ptex_face_corner_;
+  int resolution_;
 
  public:
-  GridColorSampler(const Mesh &mesh, const GridPaintColor *layer)
-      : faces_(mesh.faces()), layer_(layer)
+  GridColorSampler(const Mesh &mesh, const GridPaintColor *layer, const int resolution)
+      : faces_(mesh.faces()), layer_(layer), resolution_(resolution)
   {
     /* Same ptex numbering as the mask evaluator: one ptex for a quad, one per corner otherwise. */
     int ptex_faces_num = 0;
@@ -83,37 +85,32 @@ class GridColorSampler final : public ColorSampler {
     if (size < 2) {
       return uchar4(255, 255, 255, 255);
     }
+    /* How many stored texels one evaluated vertex covers at the modifier level. A quad ptex face
+     * holds four grids so its grid coordinates step twice as fast. */
+    float footprint = 1.0f;
+    if (resolution_ > 2) {
+      const float step = (face.size() == 4) ? 2.0f / float(resolution_ - 1) :
+                                              1.0f / float(std::max(resolution_ - 2, 1));
+      footprint = std::max(1.0f, step * float(size - 1));
+    }
     const float fx = std::clamp(grid_u, 0.0f, 1.0f) * (size - 1);
     const float fy = std::clamp(grid_v, 0.0f, 1.0f) * (size - 1);
-    const int x0 = std::min(int(fx), size - 2);
-    const int y0 = std::min(int(fy), size - 2);
-    const float tx = fx - x0;
-    const float ty = fy - y0;
-    const unsigned char *t00 = grid->data + 4 * (y0 * size + x0);
-    const unsigned char *t10 = t00 + 4;
-    const unsigned char *t01 = t00 + 4 * size;
-    const unsigned char *t11 = t01 + 4;
     unsigned char result[4];
-    for (int channel = 0; channel < 4; channel++) {
-      const float bottom = t00[channel] + (t10[channel] - t00[channel]) * tx;
-      const float top = t01[channel] + (t11[channel] - t01[channel]) * tx;
-      const float value = bottom + (top - bottom) * ty;
-      result[channel] = (unsigned char)(std::clamp(int(value + 0.5f), 0, 255));
-    }
+    grid_color_filtered(grid->data, size, fx, fy, footprint, result);
     return uchar4(result[0], result[1], result[2], result[3]);
   }
 };
 
 }  // namespace
 
-std::unique_ptr<ColorSampler> grid_color_sampler_create(const Mesh &mesh)
+std::unique_ptr<ColorSampler> grid_color_sampler_create(const Mesh &mesh, const int resolution)
 {
   const GridPaintColor *layer = static_cast<const GridPaintColor *>(
       CustomData_get_layer(&mesh.corner_data, CD_GRID_PAINT_COLOR));
   if (!layer || mesh.corners_num == 0) {
     return nullptr;
   }
-  return std::make_unique<GridColorSampler>(mesh, layer);
+  return std::make_unique<GridColorSampler>(mesh, layer, resolution);
 }
 
 }  // namespace blender::bke::subdiv

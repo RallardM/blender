@@ -31,8 +31,10 @@ struct ColorSampler {
 /**
  * GBrush: sampler reading the multires grid color layer of \a mesh, null when the mesh has no
  * such layer. Grids without data read as opaque white. The mesh has to outlive the sampler.
+ * \param resolution: the #ToMeshSettings resolution, used to average the stored colors of a fine
+ * grid when the modifier shows a coarser level.
  */
-std::unique_ptr<ColorSampler> grid_color_sampler_create(const Mesh &mesh);
+std::unique_ptr<ColorSampler> grid_color_sampler_create(const Mesh &mesh, int resolution = 0);
 
 struct ToMeshSettings {
   /**

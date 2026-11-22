@@ -132,7 +132,7 @@ static Mesh *multires_as_mesh(const MultiresModifierData *mmd,
   bke::subdiv::displacement_attach_from_multires(subdiv, mesh, mmd);
   /* GBrush: colors painted into the grids become a point color attribute of the result. */
   const std::unique_ptr<bke::subdiv::ColorSampler> color_sampler =
-      bke::subdiv::grid_color_sampler_create(*mesh);
+      bke::subdiv::grid_color_sampler_create(*mesh, mesh_settings.resolution);
   mesh_settings.color_sampler = color_sampler.get();
   result = bke::subdiv::subdiv_to_mesh(subdiv, &mesh_settings, mesh);
   if (color_sampler && result && result != mesh) {

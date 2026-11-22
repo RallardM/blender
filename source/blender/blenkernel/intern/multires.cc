@@ -474,7 +474,7 @@ static void multires_grid_paint_mask_downsample(GridPaintMask *gpm, const int le
   }
 }
 
-/** GBrush: reallocate a grid color at a lower resolution, keeping the colors of the shared points. */
+/** GBrush: reallocate a grid color at a lower resolution, averaging the texels each new one covers. */
 static void multires_grid_paint_color_downsample(GridPaintColor *gpc, const int level)
 {
   if (gpc->data == nullptr || level < 1 || level >= int(gpc->level)) {
@@ -487,12 +487,13 @@ static void multires_grid_paint_color_downsample(GridPaintColor *gpc, const int 
       size_t(square_i(dst_size)) * 4, __func__);
   for (int y = 0; y < dst_size; y++) {
     for (int x = 0; x < dst_size; x++) {
-      const unsigned char *src = gpc->data + 4 * ((y * skip) * src_size + x * skip);
-      unsigned char *dst = data + 4 * (y * dst_size + x);
-      dst[0] = src[0];
-      dst[1] = src[1];
-      dst[2] = src[2];
-      dst[3] = src[3];
+      /* Average the covered texels so a thin stroke stays visible at the new top level. */
+      bke::subdiv::grid_color_filtered(gpc->data,
+                                       src_size,
+                                       float(x * skip),
+                                       float(y * skip),
+                                       float(skip),
+                                       data + 4 * (y * dst_size + x));
     }
   }
   MEM_delete(gpc->data);

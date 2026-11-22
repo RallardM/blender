@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 
 #include "BLI_array.hh"
@@ -403,6 +405,84 @@ inline int grid_xy_to_vert(const CCGKey &key, const int grid, const int x, const
 }
 
 }  // namespace bke::ccg
+
+namespace bke::subdiv {
+
+/**
+ * GBrush: filtered lookup in a square grid of 8-bit RGBA colors (a multires grid color), used when
+ * a fine stored grid is shown at a coarser level so thin strokes keep a softer line instead of
+ * falling between sample points.
+ *
+ * \param fx, fy: sample position in texels.
+ * \param footprint: how many texels one output sample covers. At 1 or less this is a bilinear
+ * lookup (upsampling or same resolution), above 1 a tent filter with that radius is averaged.
+ * The average is done on the stored (sRGB encoded) values, like ordinary image downsampling.
+ */
+inline void grid_color_filtered(const unsigned char *data,
+                                const int size,
+                                const float fx,
+                                const float fy,
+                                const float footprint,
+                                unsigned char r_color[4])
+{
+  if (footprint <= 1.0f || size < 3) {
+    const int x0 = std::clamp(int(fx), 0, std::max(size - 2, 0));
+    const int y0 = std::clamp(int(fy), 0, std::max(size - 2, 0));
+    const int x1 = std::min(x0 + 1, size - 1);
+    const int y1 = std::min(y0 + 1, size - 1);
+    const float tx = std::clamp(fx - x0, 0.0f, 1.0f);
+    const float ty = std::clamp(fy - y0, 0.0f, 1.0f);
+    const unsigned char *t00 = data + 4 * (y0 * size + x0);
+    const unsigned char *t10 = data + 4 * (y0 * size + x1);
+    const unsigned char *t01 = data + 4 * (y1 * size + x0);
+    const unsigned char *t11 = data + 4 * (y1 * size + x1);
+    for (int channel = 0; channel < 4; channel++) {
+      const float bottom = t00[channel] + (t10[channel] - t00[channel]) * tx;
+      const float top = t01[channel] + (t11[channel] - t01[channel]) * tx;
+      r_color[channel] = (unsigned char)std::clamp(int(bottom + (top - bottom) * ty + 0.5f), 0, 255);
+    }
+    return;
+  }
+  const int x_min = std::max(0, int(std::ceil(fx - footprint)));
+  const int x_max = std::min(size - 1, int(std::floor(fx + footprint)));
+  const int y_min = std::max(0, int(std::ceil(fy - footprint)));
+  const int y_max = std::min(size - 1, int(std::floor(fy + footprint)));
+  float sum[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  float weight_sum = 0.0f;
+  for (int y = y_min; y <= y_max; y++) {
+    const float wy = 1.0f - std::abs(y - fy) / footprint;
+    if (wy <= 0.0f) {
+      continue;
+    }
+    for (int x = x_min; x <= x_max; x++) {
+      const float wx = 1.0f - std::abs(x - fx) / footprint;
+      if (wx <= 0.0f) {
+        continue;
+      }
+      const float weight = wx * wy;
+      const unsigned char *texel = data + 4 * (y * size + x);
+      sum[0] += weight * texel[0];
+      sum[1] += weight * texel[1];
+      sum[2] += weight * texel[2];
+      sum[3] += weight * texel[3];
+      weight_sum += weight;
+    }
+  }
+  if (weight_sum <= 0.0f) {
+    const int x = std::clamp(int(fx + 0.5f), 0, size - 1);
+    const int y = std::clamp(int(fy + 0.5f), 0, size - 1);
+    const unsigned char *texel = data + 4 * (y * size + x);
+    for (int channel = 0; channel < 4; channel++) {
+      r_color[channel] = texel[channel];
+    }
+    return;
+  }
+  for (int channel = 0; channel < 4; channel++) {
+    r_color[channel] = (unsigned char)std::clamp(int(sum[channel] / weight_sum + 0.5f), 0, 255);
+  }
+}
+
+}  // namespace bke::subdiv
 
 /** \} */
 
