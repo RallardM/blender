@@ -1347,7 +1347,13 @@ static void restore_from_undo_step(const Depsgraph &depsgraph, const Sculpt &sd,
     case SCULPT_BRUSH_TYPE_BLUR:
     case SCULPT_BRUSH_TYPE_PAINT:
     case SCULPT_BRUSH_TYPE_SMEAR:
-      restore_color_from_undo_step(object);
+      if (bke::object::pbvh_get(object)->type() == bke::pbvh::Type::Grids) {
+        /* GBrush: multires grid colors. */
+        restore_grid_color_from_undo_step(object);
+      }
+      else {
+        restore_color_from_undo_step(object);
+      }
       break;
     case SCULPT_BRUSH_TYPE_DRAW_FACE_SETS:
       if (ss.cache->toggle_settings.alt_smooth) {
@@ -3730,7 +3736,14 @@ static void do_brush_action(const Depsgraph &depsgraph,
                               *cursor_sample_result.plane_center);
       break;
     case SCULPT_BRUSH_TYPE_BLUR:
-      color::do_blur_brush(depsgraph, sd, ob, node_mask);
+      if (bke::object::pbvh_get(ob)->type() == bke::pbvh::Type::Grids) {
+        /* GBrush: multires grid colors. */
+        brushes::do_smooth_grid_colors(
+            depsgraph, sd, ob, node_mask, std::clamp(ss.cache->bstrength, 0.0f, 1.0f));
+      }
+      else {
+        color::do_blur_brush(depsgraph, sd, ob, node_mask);
+      }
       break;
     case SCULPT_BRUSH_TYPE_SCENE_PROJECT:
       brushes::do_scene_project_brush(depsgraph, sd, ob, node_mask);
@@ -5249,8 +5262,11 @@ static void brush_stroke_init(bContext *C, const wmOperator *op)
   bke::brush::common_pressure_curves_init(*brush);
   brush_init_tex(sd, ss);
 
+  /* Multires and dynamic topology objects have no color attribute to paint on, do not add one that
+   * the stroke would refuse to use. */
   const bool needs_colors = brush_type_is_paint(brush->sculpt_brush_type) &&
-                            !SCULPT_use_image_paint_brush(tool_settings->paint_mode, ob);
+                            !SCULPT_use_image_paint_brush(tool_settings->paint_mode, ob) &&
+                            !ss.bm && !BKE_sculpt_multires_active(CTX_data_scene(C), &ob);
 
   /* Draw Paint can only store colors on regular meshes. On multires or dynamic topology objects it
    * deforms like Draw, so do not add a color attribute that would never be painted. */
@@ -5262,11 +5278,9 @@ static void brush_stroke_init(bContext *C, const wmOperator *op)
     BKE_sculpt_color_layer_create_if_needed(&ob);
   }
 
-  /* GBrush: multires objects keep their paint in a grid color layer. Paint brushes are refused on
-   * multires by #color_supported_check, so only brushes like Draw Paint get here. */
-  if (brush_type_writes_color(brush->sculpt_brush_type) &&
-      !brush_type_is_paint(brush->sculpt_brush_type))
-  {
+  /* GBrush: multires objects keep their paint in a grid color layer. Brush types that cannot use it
+   * are refused by #color_supported_check. */
+  if (brush_type_paints_multires_grid_colors(brush->sculpt_brush_type)) {
     if (MultiresModifierData *mmd = BKE_sculpt_multires_active(CTX_data_scene(C), &ob)) {
       BKE_sculpt_grid_color_layer_ensure(&ob, mmd);
     }
@@ -5278,6 +5292,27 @@ static void brush_stroke_init(bContext *C, const wmOperator *op)
   BKE_sculpt_update_object_for_edit(depsgraph, &ob, brush_type_is_paint(brush->sculpt_brush_type));
 
   ED_paint_brush_type_update_sticky_shading_color(C, &ob);
+
+  /* GBrush: tell where a Draw Paint stroke will put its color, so a stroke that paints nothing can
+   * be diagnosed from the status bar and the Info editor. */
+  if (brush_type_paints_multires_grid_colors(brush->sculpt_brush_type)) {
+    const MultiresModifierData *mmd = BKE_sculpt_multires_active(CTX_data_scene(C), &ob);
+    const bke::pbvh::Tree *pbvh = bke::object::pbvh_get(ob);
+    const char *target = "no color target, the stroke only deforms";
+    if (brushes::draw_paint_has_grid_color_target(ob)) {
+      target = "multires grid colors";
+    }
+    else if (brushes::draw_paint_has_color_target(ob)) {
+      target = "color attribute of the mesh";
+    }
+    BKE_reportf(op->reports,
+                RPT_INFO,
+                "Color brush target: %s (multires %s, sculpt level %d, pbvh type %d)",
+                target,
+                mmd ? "active" : "not active",
+                mmd ? int(mmd->sculptlvl) : -1,
+                pbvh ? int(pbvh->type()) : -1);
+  }
 }
 
 static void restore_from_undo_step_if_necessary(const Depsgraph &depsgraph,
@@ -5764,13 +5799,23 @@ static void stroke_undo_end(PaintModeSettings &paint_mode_settings, Object &obje
   }
 }
 
-bool color_supported_check(const Scene &scene, Object &object, ReportList *reports)
+bool color_supported_check(const Scene &scene,
+                           Object &object,
+                           ReportList *reports,
+                           const bool allow_multires_grid_colors)
 {
   if (const SculptSession &ss = *object.runtime->sculpt_session; ss.bm) {
     BKE_report(reports, RPT_ERROR, "Not supported in dynamic topology mode");
     return false;
   }
   if (BKE_sculpt_multires_active(&scene, &object)) {
+    /* GBrush: Paint, Blur and Draw Paint store their colors in the multires grid colors. */
+    const Brush *brush = BKE_paint_brush_for_read(&scene.toolsettings->sculpt->paint);
+    if (allow_multires_grid_colors && brush &&
+        brush_type_paints_multires_grid_colors(brush->sculpt_brush_type))
+    {
+      return true;
+    }
     BKE_report(reports, RPT_ERROR, "Not supported in multiresolution mode");
     return false;
   }
@@ -6198,7 +6243,7 @@ static wmOperatorStatus sculpt_brush_stroke_invoke(bContext *C,
   Brush &brush = *BKE_paint_brush(&sd.paint);
 
   if (brush_type_is_paint(brush.sculpt_brush_type) &&
-      !color_supported_check(scene, ob, op->reports))
+      !color_supported_check(scene, ob, op->reports, true))
   {
     stroke->cancel(C);
     MEM_delete(stroke);
@@ -6270,6 +6315,18 @@ static wmOperatorStatus sculpt_brush_stroke_invoke(bContext *C,
 
 static wmOperatorStatus sculpt_brush_stroke_exec(bContext *C, wmOperator *op)
 {
+  /* The same refusal as in invoke, before the stroke cache is created. A brush that cannot paint
+   * here (Smear on multires) would otherwise run into brush code that expects a mesh. */
+  {
+    const Sculpt &sculpt = *CTX_data_tool_settings(C)->sculpt;
+    const Brush &exec_brush = *BKE_paint_brush_for_read(&sculpt.paint);
+    if (brush_type_is_paint(exec_brush.sculpt_brush_type) &&
+        !color_supported_check(
+            *CTX_data_scene(C), *CTX_data_active_object(C), op->reports, true))
+    {
+      return OPERATOR_CANCELLED;
+    }
+  }
   brush_stroke_init(C, op);
 
   SculptPaintStroke *stroke = MEM_new<SculptPaintStroke>(__func__, C, op, nullptr);

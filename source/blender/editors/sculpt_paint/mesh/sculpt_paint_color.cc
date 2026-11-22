@@ -19,6 +19,7 @@
 
 #include "BKE_attribute.hh"
 #include "BKE_brush.hh"
+#include "BKE_ccg.hh"
 #include "BKE_colorband.hh"
 #include "BKE_colortools.hh"
 #include "BKE_customdata.hh"
@@ -26,6 +27,7 @@
 #include "BKE_object_types.hh"
 #include "BKE_paint.hh"
 #include "BKE_paint_bvh.hh"
+#include "BKE_subdiv_ccg.hh"
 
 #include "IMB_colormanagement.hh"
 
@@ -560,6 +562,162 @@ static void do_sample_wet_paint_task(const Depsgraph &depsgraph,
   }
 }
 
+/* GBrush: Paint brush on the 8-bit multires grid colors. */
+
+struct GridPaintLocalData {
+  Vector<float3> positions;
+  Vector<float> factors;
+  Vector<float> distances;
+};
+
+static float4 paint_grid_decode(const uchar4 &stored)
+{
+  float4 color;
+  rgba_uchar_to_float(color, reinterpret_cast<const uchar *>(&stored));
+  IMB_colormanagement_srgb_to_scene_linear_v3(color, color);
+  return color;
+}
+
+static uchar4 paint_grid_encode(const float4 &color)
+{
+  float4 encoded;
+  IMB_colormanagement_scene_linear_to_srgb_v3(encoded, color);
+  encoded[3] = color[3];
+  uchar4 stored;
+  rgba_float_to_uchar(reinterpret_cast<uchar *>(&stored), encoded);
+  return stored;
+}
+
+static void do_paint_task_grids(const Depsgraph &depsgraph,
+                                Object &object,
+                                const Paint &paint,
+                                const Brush &brush,
+                                const float4 &brush_color,
+                                const float4 &wet_mix_sampled_color,
+                                const bke::pbvh::GridsNode &node,
+                                GridPaintLocalData &tls)
+{
+  SculptSession &ss = *object.runtime->sculpt_session;
+  StrokeCache &cache = *ss.cache;
+  SubdivCCG &subdiv_ccg = *ss.subdiv_ccg;
+  const CCGKey key = BKE_subdiv_ccg_key_top_level(subdiv_ccg);
+  const Span<int> grids = node.grids();
+
+  const Span<float3> positions = gather_grids_positions(subdiv_ccg, grids, tls.positions);
+  calc_factors_common_grids(depsgraph, brush, object, positions, node, tls.factors, tls.distances);
+  const MutableSpan<float> factors = tls.factors;
+  scale_factors(factors, std::abs(cache.bstrength));
+
+  const float alpha = BKE_brush_alpha_get(&paint, &brush);
+  const float flow = cache.paint_brush.flow;
+  const float density = cache.paint_brush.density;
+  const float wet_mix = cache.paint_brush.wet_mix;
+  const float density_seed = BLI_hash_int_01(uint(cache.iteration_count));
+  MutableSpan<uchar4> colors = subdiv_ccg.colors;
+  MutableSpan<float4> mix_colors = cache.paint_brush.mix_colors;
+  const std::optional<Span<uchar4>> orig_colors = orig_grid_color_data_lookup(object, node);
+
+  for (const int i : grids.index_range()) {
+    const IndexRange node_range = bke::ccg::grid_range(key, i);
+    const IndexRange grid_range = bke::ccg::grid_range(key, grids[i]);
+    for (const int offset : IndexRange(key.grid_area)) {
+      const float factor = factors[node_range[offset]];
+      if (factor <= 0.0f) {
+        continue;
+      }
+      const int vert = grid_range[offset];
+      float noise = 1.0f;
+      if (density < 1.0f) {
+        const float hash_noise = BLI_hash_int_01(density_seed * 1000 * vert);
+        if (hash_noise > density) {
+          noise = density / hash_noise;
+        }
+      }
+      const float4 original = paint_grid_decode(orig_colors ? (*orig_colors)[node_range[offset]] :
+                                                              colors[vert]);
+      float4 paint_color = brush_color * factor * flow * noise;
+      blend_color_interpolate_float(paint_color, paint_color, wet_mix_sampled_color, wet_mix);
+      blend_color_mix_float(mix_colors[vert], mix_colors[vert], paint_color);
+      const float4 buffer_color = mix_colors[vert] * alpha;
+      float4 new_color;
+      IMB_blend_color_float(new_color, original, buffer_color, IMB_BlendMode(brush.blend));
+      colors[vert] = paint_grid_encode(math::clamp(new_color, 0.0f, 1.0f));
+    }
+  }
+}
+
+static void do_paint_brush_grids(const Depsgraph &depsgraph,
+                                 const Sculpt &sd,
+                                 Object &object,
+                                 const IndexMask &node_mask)
+{
+  SculptSession &ss = *object.runtime->sculpt_session;
+  StrokeCache &cache = *ss.cache;
+  SubdivCCG &subdiv_ccg = *ss.subdiv_ccg;
+  if (subdiv_ccg.colors.is_empty()) {
+    return;
+  }
+  const Paint &paint = sd.paint;
+  const Brush &brush = *BKE_paint_brush_for_read(&paint);
+  bke::pbvh::Tree &pbvh = *bke::object::pbvh_get(object);
+  MutableSpan<bke::pbvh::GridsNode> nodes = pbvh.nodes<bke::pbvh::GridsNode>();
+  const CCGKey key = BKE_subdiv_ccg_key_top_level(subdiv_ccg);
+
+  if (cache.paint_brush.mix_colors.size() != subdiv_ccg.positions.size()) {
+    cache.paint_brush.mix_colors = Array<float4>(subdiv_ccg.positions.size(), float4(0.0f));
+  }
+
+  float3 color_rgb = cache.toggle_settings.invert ? BKE_brush_secondary_color_get(&paint, &brush) :
+                                                    BKE_brush_color_get(&paint, &brush);
+  if (const std::optional<BrushColorJitterSettings> jitter = BKE_brush_color_jitter_get_settings(
+          &paint, &brush))
+  {
+    color_rgb = BKE_paint_randomize_color(
+        *jitter, *cache.initial_hsv_jitter, cache.stroke_distance, cache.pressure, color_rgb);
+  }
+  const float4 brush_color(color_rgb, 1.0f);
+
+  /* Wet paint: the average color around the brush center, no persistence on multires yet. */
+  float4 wet_mix_sampled_color(0.0f);
+  if (cache.paint_brush.wet_mix > 0.0f) {
+    const float radius_sq = math::square(cache.radius * brush.wet_paint_radius_factor);
+    float4 sum(0.0f);
+    int count = 0;
+    Vector<float3> positions;
+    node_mask.foreach_index([&](const int i) {
+      const Span<int> grids = nodes[i].grids();
+      const Span<float3> node_positions = gather_grids_positions(subdiv_ccg, grids, positions);
+      for (const int g : grids.index_range()) {
+        const IndexRange node_range = bke::ccg::grid_range(key, g);
+        const IndexRange grid_range = bke::ccg::grid_range(key, grids[g]);
+        for (const int offset : IndexRange(key.grid_area)) {
+          if (math::distance_squared(node_positions[node_range[offset]], cache.location_symm) <
+              radius_sq)
+          {
+            sum += paint_grid_decode(subdiv_ccg.colors[grid_range[offset]]);
+            count++;
+          }
+        }
+      }
+    });
+    if (count > 0) {
+      wet_mix_sampled_color = sum / float(count);
+    }
+  }
+
+  threading::EnumerableThreadSpecific<GridPaintLocalData> all_tls;
+  node_mask.foreach_index(
+      [&](const int i) {
+        GridPaintLocalData &tls = all_tls.local();
+        do_paint_task_grids(
+            depsgraph, object, paint, brush, brush_color, wet_mix_sampled_color, nodes[i], tls);
+      },
+      exec_mode::grain_size(1));
+
+  subdiv_ccg.dirty.colors = true;
+  pbvh.tag_attribute_changed(node_mask, SUBDIV_CCG_COLOR_NAME);
+}
+
 void do_paint_brush(const Depsgraph &depsgraph,
                     PaintModeSettings &paint_mode_settings,
                     const Sculpt &sd,
@@ -567,6 +725,11 @@ void do_paint_brush(const Depsgraph &depsgraph,
                     const IndexMask &node_mask,
                     const IndexMask &texnode_mask)
 {
+  if (bke::object::pbvh_get(ob)->type() == bke::pbvh::Type::Grids) {
+    /* GBrush: multires grid colors. */
+    do_paint_brush_grids(depsgraph, sd, ob, node_mask);
+    return;
+  }
   if (SCULPT_use_image_paint_brush(paint_mode_settings, ob)) {
     SCULPT_do_paint_brush_image(depsgraph, sd, ob, texnode_mask);
     return;

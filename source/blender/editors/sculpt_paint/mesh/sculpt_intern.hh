@@ -475,7 +475,15 @@ bool brush_cursor_poll(bContext *C);
  * NOTE: Does not check if a color attribute actually exists. Calling code must handle this itself;
  * in most cases a call to BKE_sculpt_color_layer_create_if_needed() is sufficient.
  */
-bool color_supported_check(const Scene &scene, Object &object, ReportList *reports);
+/**
+ * \param allow_multires_grid_colors: only the sculpt brush stroke passes true, so the brush types
+ * that paint the multires grid colors can run. Color filters, sample color and the other operators
+ * that read or write a color attribute keep refusing multires objects.
+ */
+bool color_supported_check(const Scene &scene,
+                           Object &object,
+                           ReportList *reports,
+                           bool allow_multires_grid_colors = false);
 
 /** \} */
 
@@ -898,6 +906,15 @@ inline bool brush_type_is_paint(const int tool)
 inline bool brush_type_writes_color(const int tool)
 {
   return brush_type_is_paint(tool) || tool == SCULPT_BRUSH_TYPE_DRAW_PAINT;
+}
+
+/**
+ * GBrush: brush types whose colors can be stored in the multires grid color layer, so they work on
+ * a multires object without applying it. Smear is not supported on multires yet.
+ */
+inline bool brush_type_paints_multires_grid_colors(const int tool)
+{
+  return ELEM(tool, SCULPT_BRUSH_TYPE_DRAW_PAINT, SCULPT_BRUSH_TYPE_PAINT, SCULPT_BRUSH_TYPE_BLUR);
 }
 
 inline bool brush_type_is_mask(const int tool)
