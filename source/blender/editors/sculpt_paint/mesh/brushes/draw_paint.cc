@@ -201,6 +201,7 @@ static void calc_grids(const Depsgraph &depsgraph,
       if (opacity <= 0.0f) {
         continue;
       }
+      subdiv_ccg.mark_color_touched(grids[i]);
       uchar4 &stored = colors[grid_range[offset_in_grid]];
       const float4 current = grid_color_to_float(stored);
       /* The blend functions expect the source color to be premultiplied. */
@@ -237,7 +238,6 @@ static void do_draw_paint_grids(const Depsgraph &depsgraph,
       [&](const int i) {
         LocalData &tls = all_tls.local();
         calc_grids(depsgraph, sd, object, brush, offset, brush_color, color_opacity, nodes[i], tls);
-        subdiv_ccg.mark_colors_touched(nodes[i].grids());
         bke::pbvh::update_node_bounds_grids(subdiv_ccg.grid_area, positions, nodes[i]);
       },
       exec_mode::grain_size(1));
