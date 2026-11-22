@@ -602,6 +602,7 @@ static void do_paint_task_grids(const Depsgraph &depsgraph,
   SubdivCCG &subdiv_ccg = *ss.subdiv_ccg;
   const CCGKey key = BKE_subdiv_ccg_key_top_level(subdiv_ccg);
   const Span<int> grids = node.grids();
+  subdiv_ccg.mark_colors_touched(grids);
 
   const Span<float3> positions = gather_grids_positions(subdiv_ccg, grids, tls.positions);
   calc_factors_common_grids(depsgraph, brush, object, positions, node, tls.factors, tls.distances);

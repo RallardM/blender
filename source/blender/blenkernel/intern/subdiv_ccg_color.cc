@@ -175,7 +175,12 @@ void BKE_subdiv_ccg_colors_write_to_paint(const SubdivCCG &subdiv_ccg, Mesh &mes
         }
       }
       else {
-        /* Never painted and still white, keep the grid empty. */
+        /* Nobody painted this grid, keep it empty even if the boundary averaging or the averaged
+         * downsample gave it a faint color. */
+        if (grid >= subdiv_ccg.colors_touched.size() || !subdiv_ccg.colors_touched[grid]) {
+          continue;
+        }
+        /* Painted but still white, keep the grid empty. */
         bool white = true;
         for (int i = 0; i < grid_area && white; i++) {
           white = src[i] == uchar4(255, 255, 255, 255);

@@ -88,6 +88,7 @@ static void subdiv_ccg_alloc_elements(SubdivCCG &subdiv_ccg,
   }
   if (settings.need_color) {
     subdiv_ccg.colors.reinitialize(num_grids * grid_area);
+    subdiv_ccg.colors_touched = Array<bool>(num_grids, false);
     subdiv_ccg.colors.fill(uchar4(255, 255, 255, 255));
   }
   /* TODO(sergey): Allocate memory for loose elements. */

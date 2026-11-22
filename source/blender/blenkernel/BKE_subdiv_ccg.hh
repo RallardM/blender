@@ -161,6 +161,22 @@ struct SubdivCCG : NonCopyable {
    * never painted are opaque white.
    */
   Array<uchar4> colors;
+  /**
+   * GBrush: the grids a color brush wrote to. A grid that has no stored color data is only stored
+   * when it was touched, so colors that only come from the boundary averaging of a neighbor
+   * grid (or from the averaged downsample) do not create data in grids nobody painted.
+   * Sized with the colors, each grid belongs to one node so tasks write distinct entries.
+   */
+  Array<bool> colors_touched;
+  void mark_colors_touched(const Span<int> grids)
+  {
+    if (colors_touched.size() != grids_num) {
+      return;
+    }
+    for (const int grid : grids) {
+      colors_touched[grid] = true;
+    }
+  }
 
   /** Faces from which grids are emitted. Owned by base mesh. */
   OffsetIndices<int> faces;

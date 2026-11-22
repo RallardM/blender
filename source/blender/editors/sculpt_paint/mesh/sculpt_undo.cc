@@ -1411,6 +1411,11 @@ static void restore_list(bContext *C, Depsgraph *depsgraph, StepData &step_data)
             memory,
             [&](const int i) { return indices_contain_true(modified_grids, grid_nodes[i].grids()); },
             exec_mode::grain_size(1));
+        for (const int grid : modified_grids.index_range()) {
+          if (modified_grids[grid]) {
+            ss.subdiv_ccg->mark_colors_touched(Span<int>(&grid, 1));
+          }
+        }
         ss.subdiv_ccg->dirty.colors = true;
         pbvh.tag_attribute_changed(changed_grid_nodes, SUBDIV_CCG_COLOR_NAME);
         break;
